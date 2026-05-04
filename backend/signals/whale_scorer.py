@@ -43,6 +43,7 @@ _ACTIVITY_CUTOFF = timedelta(days=90)
 _MIN_MARKETS = 50          # minimum markets traded to include in ranking
 _DEACTIVATE_AFTER = 30     # days of inactivity before marking is_active=False
 _BATCH_SIZE = 50           # leaderboard page size
+_MAX_LEADERBOARD_PAGES = 10  # fetch top 500 traders only (ordered by PNL)
 
 
 class WhaleScorer:
@@ -190,11 +191,12 @@ class WhaleScorer:
         return updated
 
     async def _fetch_leaderboard(self, cutoff: datetime) -> list[dict]:
-        """Fetch all leaderboard pages from Polymarket's data API (v1)."""
+        """Fetch top traders from Polymarket's data API (v1), capped at _MAX_LEADERBOARD_PAGES."""
         results: list[dict] = []
         offset = 0
+        pages_fetched = 0
         async with httpx.AsyncClient(timeout=httpx.Timeout(20)) as http:
-            while True:
+            while pages_fetched < _MAX_LEADERBOARD_PAGES:
                 params = {
                     "limit": _BATCH_SIZE,
                     "offset": offset,
@@ -221,6 +223,7 @@ class WhaleScorer:
                     break
 
                 results.extend(batch)
+                pages_fetched += 1
 
                 if len(batch) < _BATCH_SIZE:
                     break

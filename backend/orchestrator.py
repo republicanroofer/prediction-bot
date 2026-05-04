@@ -153,7 +153,7 @@ class Orchestrator:
         self._scheduler.add_job(
             whale_scorer.run_once,
             "interval",
-            hours=4,
+            minutes=30,
             id="whale_scorer",
             misfire_grace_time=300,
         )

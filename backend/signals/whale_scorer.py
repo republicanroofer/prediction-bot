@@ -38,7 +38,7 @@ from backend.db.database import Database
 
 logger = logging.getLogger(__name__)
 
-_LEADERBOARD_URL = "https://data-api.polymarket.com/leaderboard"
+_LEADERBOARD_URL = "https://data-api.polymarket.com/v1/leaderboard"
 _ACTIVITY_CUTOFF = timedelta(days=90)
 _MIN_MARKETS = 50          # minimum markets traded to include in ranking
 _DEACTIVATE_AFTER = 30     # days of inactivity before marking is_active=False
@@ -147,7 +147,8 @@ class WhaleScorer:
 
         updated = 0
         for entry in addresses:
-            address = entry.get("proxyWalletAddress", "").lower()
+            # v1 API uses "proxyWallet" (not "proxyWalletAddress")
+            address = (entry.get("proxyWallet") or entry.get("proxyWalletAddress") or "").lower()
             if not address:
                 continue
 
@@ -156,13 +157,11 @@ class WhaleScorer:
             if existing and int(existing.markets_traded or 0) >= _MIN_MARKETS * 2:
                 continue
 
-            # Derive metrics from leaderboard fields
+            # v1 API uses "vol" for volume; marketsTraded not exposed, use default
             pnl = float(entry.get("pnl") or entry.get("profit") or 0)
-            volume = float(entry.get("volume") or 0)
-            markets = int(entry.get("marketsTraded") or 0)
-
-            if markets < _MIN_MARKETS:
-                continue
+            volume = float(entry.get("vol") or entry.get("volume") or 0)
+            # v1 leaderboard doesn't expose marketsTraded; assume qualified traders
+            markets = int(entry.get("marketsTraded") or _MIN_MARKETS + 10)
 
             # Leaderboard doesn't expose win/loss breakdown directly;
             # approximate from pnl/volume ratio
@@ -173,18 +172,8 @@ class WhaleScorer:
 
             composite = _composite_score(big_win_rate, median_gain, implied_win_rate)
 
-            last_active_str = entry.get("lastActive") or entry.get("updatedAt")
-            last_active: Optional[datetime] = None
-            if last_active_str:
-                try:
-                    last_active = datetime.fromisoformat(
-                        str(last_active_str).replace("Z", "+00:00")
-                    )
-                except ValueError:
-                    pass
-
             await self._db.upsert_whale_score(address, {
-                "display_name":     entry.get("name") or entry.get("username"),
+                "display_name":     entry.get("userName") or entry.get("name") or entry.get("username"),
                 "total_pnl_usd":    round(pnl, 2),
                 "win_rate":         round(implied_win_rate, 4),
                 "big_win_rate":     round(big_win_rate, 4),
@@ -194,14 +183,14 @@ class WhaleScorer:
                 "total_volume_usd": round(volume, 2),
                 "composite_score":  round(composite, 2),
                 "is_active":        True,
-                "last_trade_at":    last_active,
+                "last_trade_at":    None,
             })
             updated += 1
 
         return updated
 
     async def _fetch_leaderboard(self, cutoff: datetime) -> list[dict]:
-        """Fetch all leaderboard pages from Polymarket's data API."""
+        """Fetch all leaderboard pages from Polymarket's data API (v1)."""
         results: list[dict] = []
         offset = 0
         async with httpx.AsyncClient(timeout=httpx.Timeout(20)) as http:
@@ -209,6 +198,8 @@ class WhaleScorer:
                 params = {
                     "limit": _BATCH_SIZE,
                     "offset": offset,
+                    "timePeriod": "ALL",
+                    "orderBy": "PNL",
                 }
                 for attempt in range(3):
                     try:
@@ -229,16 +220,7 @@ class WhaleScorer:
                 if not batch:
                     break
 
-                # Filter by activity cutoff
-                for entry in batch:
-                    last_str = entry.get("lastActive") or entry.get("updatedAt") or ""
-                    try:
-                        last = datetime.fromisoformat(last_str.replace("Z", "+00:00"))
-                        if last < cutoff:
-                            continue
-                    except (ValueError, AttributeError):
-                        pass
-                    results.append(entry)
+                results.extend(batch)
 
                 if len(batch) < _BATCH_SIZE:
                     break

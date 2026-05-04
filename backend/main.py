@@ -24,6 +24,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from backend.api.routes.activity import router as activity_router
 from backend.api.routes.control import router as control_router
 from backend.api.routes.markets import router as markets_router
 from backend.api.routes.orders import router as orders_router
@@ -68,6 +69,7 @@ app.add_middleware(
 _API_PREFIX = "/api/v1"
 
 app.include_router(ws_router)
+app.include_router(activity_router, prefix=_API_PREFIX)
 app.include_router(control_router, prefix=_API_PREFIX)
 app.include_router(markets_router, prefix=_API_PREFIX)
 app.include_router(positions_router, prefix=_API_PREFIX)

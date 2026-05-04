@@ -65,6 +65,31 @@ async def list_blocked_trades(
     return [dict(r) for r in rows]
 
 
+@router.get("/whale", response_model=list[dict])
+async def list_whale_mirror_signals(
+    hours: int = Query(24, le=168),
+    limit: int = Query(50, le=200),
+    db: Database = Depends(get_db),
+) -> list[dict]:
+    """Recent whale trades that were queued for mirroring."""
+    async with db._pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT wt.*, ws.composite_score AS whale_score, m.title AS market_title
+            FROM whale_trades wt
+            LEFT JOIN whale_scores ws ON ws.address = wt.maker_address
+            LEFT JOIN markets m ON m.id = wt.market_id
+            WHERE wt.mirror_queued_at >= NOW() - ($1 || ' hours')::interval
+              AND wt.is_platform_tx = FALSE
+            ORDER BY wt.mirror_queued_at DESC
+            LIMIT $2
+            """,
+            str(hours),
+            limit,
+        )
+    return [dict(r) for r in rows]
+
+
 @router.get("/category-scores")
 async def category_scores(
     exchange: Optional[Exchange] = Query(None),

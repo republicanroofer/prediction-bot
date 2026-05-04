@@ -60,6 +60,7 @@ class Orchestrator:
 
         # Exchange client refs for cleanup
         self._kalshi: Optional[KalshiClient] = None
+        self._gamma: Optional[GammaClient] = None
         self._clob: Optional[PolymarketClobClient] = None
 
     async def start(self) -> None:
@@ -91,6 +92,8 @@ class Orchestrator:
             # Gamma is read-only (no auth) — always try to start it
             try:
                 gamma = GammaClient.from_settings()
+                await gamma.__aenter__()
+                self._gamma = gamma
                 logger.info("Orchestrator: Polymarket Gamma client ready")
             except Exception as exc:
                 logger.error("Orchestrator: Gamma client failed: %s", exc)
@@ -195,6 +198,12 @@ class Orchestrator:
         if self._kalshi:
             try:
                 await self._kalshi.__aexit__(None, None, None)
+            except Exception:
+                pass
+
+        if self._gamma:
+            try:
+                await self._gamma.__aexit__(None, None, None)
             except Exception:
                 pass
 

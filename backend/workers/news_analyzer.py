@@ -219,11 +219,9 @@ class NewsAnalyzerWorker:
                     self._cfg.gdelt_base_url, params=params
                 )
                 if resp.status_code == 429:
-                    wait = 15 * (attempt + 1)
-                    logger.warning("GDELT 429 — backing off %ds", wait)
-                    await asyncio.sleep(wait)
-                    self._last_gdelt_call = time.monotonic()
-                    continue
+                    # Skip this market — 20s interval will guard the next one
+                    logger.debug("GDELT 429 — skipping market, interval will recover")
+                    return []
                 if resp.status_code >= 500:
                     await asyncio.sleep(5 * (attempt + 1))
                     continue

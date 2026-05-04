@@ -204,6 +204,18 @@ export type EvalDecision = {
   created_at: string;
 };
 
+export type DecisionBucket = {
+  reason: string;
+  exchange: string;
+  decision: string;
+  count: number;
+};
+
+export type DecisionSummary = {
+  total: number;
+  buckets: DecisionBucket[];
+};
+
 export type CategoryExposure = {
   category: string;
   exchange: string;
@@ -241,14 +253,16 @@ export const api = {
   funnel: (hours = 24) => fetchJSON<FunnelMetrics>(`/analytics/funnel?hours=${hours}`),
   opportunities: (limit = 20) => fetchJSON<Opportunity[]>(`/analytics/opportunities?limit=${limit}`),
   decisions: (hours = 24, limit = 100) => fetchJSON<Decision[]>(`/analytics/decisions?hours=${hours}&limit=${limit}`),
-  decisionsLive: (opts?: { limit?: number; exchange?: string; decision?: string; signal_type?: string }) => {
+  decisionsLive: (opts?: { limit?: number; exchange?: string; decision?: string; signal_type?: string; reason?: string }) => {
     const p = new URLSearchParams();
     if (opts?.limit) p.set("limit", String(opts.limit));
     if (opts?.exchange) p.set("exchange", opts.exchange);
     if (opts?.decision) p.set("decision", opts.decision);
     if (opts?.signal_type) p.set("signal_type", opts.signal_type);
+    if (opts?.reason) p.set("reason", opts.reason);
     return fetchJSON<EvalDecision[]>(`/analytics/decisions/live?${p}`);
   },
+  decisionsSummary: () => fetchJSON<DecisionSummary>(`/analytics/decisions/summary`),
   exposure: () => fetchJSON<CategoryExposure[]>(`/analytics/exposure`),
   positionHistory: (id: string) => fetchJSON<PositionHistory>(`/positions/${id}/history`),
 };

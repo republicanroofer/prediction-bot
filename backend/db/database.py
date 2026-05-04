@@ -822,6 +822,7 @@ class Database:
         exchange: Optional[str] = None,
         decision: Optional[str] = None,
         signal_type: Optional[str] = None,
+        reason_prefix: Optional[str] = None,
     ) -> list[dict]:
         async with self._pool.acquire() as conn:
             clauses = ["TRUE"]
@@ -840,8 +841,12 @@ class Database:
                 clauses.append(f"signal_type = ${idx}")
                 params.append(signal_type)
                 idx += 1
+            if reason_prefix:
+                clauses.append(f"reason LIKE ${idx}")
+                params.append(reason_prefix + "%")
+                idx += 1
 
-            clauses.append(f"created_at >= NOW() - interval '24 hours'")
+            clauses.append("created_at >= NOW() - interval '24 hours'")
 
             where = " AND ".join(clauses)
             params.append(limit)

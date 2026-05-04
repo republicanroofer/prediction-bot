@@ -182,6 +182,7 @@ async def decisions_live(
     exchange: Optional[str] = Query(None),
     decision: Optional[str] = Query(None),
     signal_type: Optional[str] = Query(None),
+    reason: Optional[str] = Query(None),
     db: Database = Depends(get_db),
 ) -> list[dict]:
     rows = await db.get_evaluation_decisions(
@@ -189,12 +190,45 @@ async def decisions_live(
         exchange=exchange,
         decision=decision,
         signal_type=signal_type,
+        reason_prefix=reason,
     )
     for r in rows:
         for k, v in r.items():
             if isinstance(v, UUID):
                 r[k] = str(v)
     return rows
+
+
+@router.get("/decisions/summary")
+async def decisions_summary(
+    db: Database = Depends(get_db),
+) -> dict:
+    async with db._pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                substring(reason from '^[^:]+') AS reason_bucket,
+                exchange,
+                decision,
+                count(*) AS cnt
+            FROM evaluation_decisions
+            WHERE created_at >= NOW() - interval '24 hours'
+            GROUP BY 1, 2, 3
+            ORDER BY cnt DESC
+            """
+        )
+        total = await conn.fetchval(
+            "SELECT count(*) FROM evaluation_decisions WHERE created_at >= NOW() - interval '24 hours'"
+        )
+    buckets: list[dict] = []
+    for r in rows:
+        buckets.append({
+            "reason": r["reason_bucket"],
+            "exchange": r["exchange"],
+            "decision": r["decision"],
+            "count": r["cnt"],
+        })
+    return {"total": total, "buckets": buckets}
 
 
 @router.get("/exposure")

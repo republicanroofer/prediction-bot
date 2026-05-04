@@ -39,7 +39,7 @@ async def list_markets(
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.append(limit)
         rows = await conn.fetch(
-            f"SELECT * FROM markets {where} ORDER BY volume_usd DESC NULLS LAST LIMIT ${len(params)}",
+            f"SELECT * FROM markets {where} ORDER BY volume_24h_usd DESC NULLS LAST LIMIT ${len(params)}",
             *params,
         )
     return [Market.model_validate(dict(r)) for r in rows]

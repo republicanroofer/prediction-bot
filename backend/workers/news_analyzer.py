@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 MAX_MARKETS_PER_RUN = 15
 LOOKBACK_HOURS = 24
 MIN_RELEVANCE = 0.30  # discard very low-relevance articles
-GDELT_MIN_INTERVAL_S = 12  # minimum seconds between GDELT requests
+GDELT_MIN_INTERVAL_S = 20  # minimum seconds between GDELT requests (429 guard)
 
 # Simple sentiment word lists for scoring
 _POS_WORDS = frozenset({

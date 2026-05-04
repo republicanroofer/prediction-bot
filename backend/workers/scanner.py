@@ -601,9 +601,9 @@ class ScannerWorker:
         """
         if self._cfg.trading_mode == TradingMode.PAPER:
             exposure = await self._db.get_total_exposure_usd()
-            return max(0.0, 10_000.0 - exposure)
+            return max(0.0, self._cfg.paper_starting_balance - exposure)
         # Live: TODO query Kalshi balance + Poly USDC balance
-        return 10_000.0
+        return self._cfg.paper_starting_balance
 
 
 # ── Utilities ─────────────────────────────────────────────────────────────────

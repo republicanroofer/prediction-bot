@@ -88,16 +88,23 @@ class Orchestrator:
                 kalshi = None
 
         if use_poly:
+            # Gamma is read-only (no auth) — always try to start it
             try:
-                gamma = GammaClient()
+                gamma = GammaClient.from_settings()
+                logger.info("Orchestrator: Polymarket Gamma client ready")
+            except Exception as exc:
+                logger.error("Orchestrator: Gamma client failed: %s", exc)
+                gamma = None
+
+            # CLOB requires wallet key — only needed for live trading
+            try:
                 clob = PolymarketClobClient.from_settings()
                 await clob.__aenter__()
                 self._clob = clob
                 logger.info("Orchestrator: Polymarket CLOB client ready")
             except Exception as exc:
-                logger.error("Orchestrator: Polymarket client failed: %s", exc)
+                logger.warning("Orchestrator: CLOB client unavailable (paper/read-only mode): %s", exc)
                 clob = None
-                gamma = None
 
         # ── Executors + OrderManager ──────────────────────────────────────────
         self.paper_engine = PaperEngine(self.db)
@@ -123,7 +130,7 @@ class Orchestrator:
             )
             workers.append(scanner.run())
 
-        if clob:
+        if use_poly:
             ingester = WhaleIngesterWorker(
                 db=self.db,
                 stop_event=self._stop,

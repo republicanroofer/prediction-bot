@@ -102,6 +102,9 @@ class Settings(BaseSettings):
     take_profit_pct: float = 0.80          # exit if position up 80%
     max_hold_hours: int = 240              # 10-day hard cap
 
+    # ── Paper trading ────────────────────────────────────────────────────────
+    paper_starting_balance: float = 10000.0
+
     # ── Workers ─────────────────────────────────────────────────────────────
     position_track_interval_s: int = 15
     daily_summary_hour_utc: int = 9        # send daily Telegram summary at 9am UTC

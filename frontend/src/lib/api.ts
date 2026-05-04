@@ -55,6 +55,9 @@ export type BotStatus = {
   take_profit_pct: number;
   max_position_pct: number;
   kelly_fraction: number;
+  paper_starting_balance: number;
+  paper_balance: number;
+  paper_return_pct: number;
 };
 
 export type Market = {

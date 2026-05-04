@@ -44,6 +44,20 @@ async def bot_status(
             WHERE status IN ('open', 'pending_close')
             """
         )
+        realized_pnl = await conn.fetchval(
+            "SELECT COALESCE(SUM(realized_pnl), 0) FROM positions WHERE status = 'closed'"
+        )
+        unrealized_pnl = await conn.fetchval(
+            """
+            SELECT COALESCE(SUM(unrealized_pnl), 0)
+            FROM positions
+            WHERE status IN ('open', 'pending_close')
+            """
+        )
+
+    starting = cfg.paper_starting_balance
+    paper_balance = starting + float(realized_pnl or 0) + float(unrealized_pnl or 0)
+    paper_return_pct = (paper_balance - starting) / starting * 100
 
     return {
         "mode": cfg.trading_mode.value,
@@ -55,6 +69,9 @@ async def bot_status(
         "take_profit_pct": cfg.take_profit_pct,
         "max_position_pct": cfg.max_position_pct,
         "kelly_fraction": cfg.kelly_fraction,
+        "paper_starting_balance": starting,
+        "paper_balance": round(paper_balance, 2),
+        "paper_return_pct": round(paper_return_pct, 2),
     }
 
 

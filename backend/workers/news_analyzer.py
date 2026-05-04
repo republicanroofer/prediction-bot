@@ -92,18 +92,21 @@ class NewsAnalyzerWorker:
         markets.sort(key=lambda m: float(m.volume_24h_usd or 0), reverse=True)
         batch = markets[:MAX_MARKETS_PER_RUN]
 
+        # URL-level dedup: one set shared across all markets this run.
+        # Prevents the same article being stored for 6 different markets.
+        self._seen_urls: set[str] = await self._db.get_recent_signal_urls(hours=24)
+
         total_signals = 0
         for market in batch:
             try:
                 count = await self._analyze_market(market)
                 total_signals += count
-                # Small sleep to avoid hammering APIs
                 await asyncio.sleep(0.5)
             except Exception:
                 logger.exception("News analysis failed for %s", market.external_id)
 
         if total_signals:
-            logger.info("News analyzer: stored %d signals across %d markets", total_signals, len(batch))
+            logger.info("News analyzer: stored %d new signals across %d markets", total_signals, len(batch))
 
     async def _analyze_market(self, market: Market) -> int:
         keywords = _extract_keywords(market.title)
@@ -113,45 +116,46 @@ class NewsAnalyzerWorker:
         query_str = " ".join(keywords[:5])  # top 5 keywords
         count = 0
 
-        # NewsAPI
+        # NewsAPI — always fetch; dedup by URL across markets
         if self._cfg.newsapi_key:
-            already = await self._db.has_recent_signal_for_market(
-                market.id, source="newsapi", hours=4
-            )
-            if not already:
-                articles = await self._fetch_newsapi(query_str)
-                for article in articles:
-                    sig = _score_article(
-                        headline=article.get("title", ""),
-                        description=article.get("description", ""),
-                        url=article.get("url"),
-                        published_at=_parse_datetime(article.get("publishedAt")),
-                        source="newsapi",
-                        market_keywords=keywords,
-                        raw=article,
-                    )
-                    if sig and sig.relevance_score and sig.relevance_score >= MIN_RELEVANCE:
-                        sig.market_id = market.id
-                        sig.external_market_id = market.external_id
-                        await self._db.insert_news_signal(sig)
-                        count += 1
-
-        # GDELT
-        already_gdelt = await self._db.has_recent_signal_for_market(
-            market.id, source="gdelt", hours=4
-        )
-        if not already_gdelt:
-            gdelt_articles = await self._fetch_gdelt(query_str)
-            for article in gdelt_articles:
-                sig = _score_gdelt_article(
-                    article=article,
+            articles = await self._fetch_newsapi(query_str)
+            for article in articles:
+                url = article.get("url") or ""
+                if url and url in self._seen_urls:
+                    continue
+                sig = _score_article(
+                    headline=article.get("title", ""),
+                    description=article.get("description", ""),
+                    url=url or None,
+                    published_at=_parse_datetime(article.get("publishedAt")),
+                    source="newsapi",
                     market_keywords=keywords,
+                    raw=article,
                 )
                 if sig and sig.relevance_score and sig.relevance_score >= MIN_RELEVANCE:
                     sig.market_id = market.id
                     sig.external_market_id = market.external_id
-                    await self._db.insert_news_signal(sig)
+                    stored_id = await self._db.insert_news_signal(sig)
+                    if stored_id:
+                        count += 1
+                        if url:
+                            self._seen_urls.add(url)
+
+        # GDELT — same URL-level dedup
+        gdelt_articles = await self._fetch_gdelt(query_str)
+        for article in gdelt_articles:
+            url = article.get("url") or ""
+            if url and url in self._seen_urls:
+                continue
+            sig = _score_gdelt_article(article=article, market_keywords=keywords)
+            if sig and sig.relevance_score and sig.relevance_score >= MIN_RELEVANCE:
+                sig.market_id = market.id
+                sig.external_market_id = market.external_id
+                stored_id = await self._db.insert_news_signal(sig)
+                if stored_id:
                     count += 1
+                    if url:
+                        self._seen_urls.add(url)
 
         return count
 

@@ -21,19 +21,32 @@ async def list_news_signals(
     db: Database = Depends(get_db),
 ) -> list[NewsSignal]:
     async with db._pool.acquire() as conn:
-        conditions = ["created_at >= NOW() - ($1 || ' hours')::interval"]
-        params: list = [str(hours)]
-
         if market_id:
-            params.append(market_id)
-            conditions.append(f"market_id = ${len(params)}")
-
-        where = f"WHERE {' AND '.join(conditions)}"
-        params.append(limit)
-        rows = await conn.fetch(
-            f"SELECT * FROM news_signals {where} ORDER BY created_at DESC LIMIT ${len(params)}",
-            *params,
-        )
+            # Per-market view: all signals for that market, no dedup needed
+            rows = await conn.fetch(
+                """
+                SELECT * FROM news_signals
+                WHERE market_id = $1
+                  AND created_at >= NOW() - ($2 || ' hours')::interval
+                ORDER BY relevance_score DESC NULLS LAST, created_at DESC
+                LIMIT $3
+                """,
+                market_id, str(hours), limit,
+            )
+        else:
+            # Global view: deduplicate by URL so the same article only
+            # appears once even if stored for multiple markets.
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT ON (COALESCE(url, headline))
+                    *
+                FROM news_signals
+                WHERE created_at >= NOW() - ($1 || ' hours')::interval
+                ORDER BY COALESCE(url, headline), relevance_score DESC, created_at DESC
+                LIMIT $2
+                """,
+                str(hours), limit,
+            )
     return [NewsSignal.model_validate(dict(r)) for r in rows]
 
 

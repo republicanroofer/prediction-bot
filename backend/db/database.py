@@ -635,7 +635,8 @@ class Database:
 
     # ── News signals ──────────────────────────────────────────────────────────
 
-    async def insert_news_signal(self, data: NewsSignalInsert) -> UUID:
+    async def insert_news_signal(self, data: NewsSignalInsert) -> Optional[UUID]:
+        """Insert a news signal; returns None (silently) if the URL already exists."""
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
@@ -644,6 +645,7 @@ class Database:
                     published_at, sentiment_score, relevance_score,
                     direction, keywords, raw
                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                ON CONFLICT (url) DO NOTHING
                 RETURNING id
                 """,
                 data.market_id,
@@ -658,7 +660,20 @@ class Database:
                 data.keywords,
                 _to_json(data.raw),
             )
-            return row["id"]
+            return row["id"] if row else None
+
+    async def get_recent_signal_urls(self, hours: int = 24) -> set[str]:
+        """Return the set of URLs already stored in the last N hours."""
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT url FROM news_signals
+                WHERE url IS NOT NULL
+                  AND created_at >= NOW() - ($1 || ' hours')::INTERVAL
+                """,
+                str(hours),
+            )
+        return {r["url"] for r in rows}
 
     async def get_recent_signals_for_market(
         self, market_id: UUID, hours: int = 24

@@ -271,9 +271,10 @@ CREATE TABLE news_signals (
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_news_market    ON news_signals (market_id);
-CREATE INDEX idx_news_created   ON news_signals (created_at DESC);
-CREATE INDEX idx_news_source    ON news_signals (source);
+CREATE UNIQUE INDEX idx_news_url     ON news_signals (url) WHERE url IS NOT NULL;
+CREATE INDEX        idx_news_market  ON news_signals (market_id);
+CREATE INDEX        idx_news_created ON news_signals (created_at DESC);
+CREATE INDEX        idx_news_source  ON news_signals (source);
 
 -- ── category_scores ───────────────────────────────────────────────────────────
 -- Per-exchange per-category performance scores used by CategoryScorer.

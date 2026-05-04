@@ -95,16 +95,16 @@ class WhaleIngesterWorker:
                 if stored:
                     inserted += 1
             except Exception:
-                logger.exception("Failed to process trade %s", trade.get("id"))
+                logger.exception("Failed to process trade %s", trade.get("transactionHash"))
 
-            # Track newest timestamp for cursor advance
-            ts_str = trade.get("match_time") or trade.get("last_update")
-            if ts_str:
+            # Track newest timestamp for cursor advance (field is Unix int)
+            ts_raw = trade.get("timestamp")
+            if ts_raw:
                 try:
-                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    ts = datetime.fromtimestamp(int(ts_raw), tz=timezone.utc)
                     if newest is None or ts > newest:
                         newest = ts
-                except (ValueError, AttributeError):
+                except (ValueError, TypeError):
                     pass
 
         if newest:
@@ -143,8 +143,9 @@ class WhaleIngesterWorker:
     # ── Trade processing ──────────────────────────────────────────────────────
 
     async def _process_trade(self, trade: dict, now: datetime) -> bool:
-        tx_hash = trade.get("transaction_hash") or trade.get("id") or ""
-        maker = (trade.get("maker_address") or "").lower()
+        # Polymarket Data API field names differ from internal names
+        tx_hash = trade.get("transactionHash") or trade.get("id") or ""
+        maker = (trade.get("proxyWallet") or "").lower()
 
         if not tx_hash or not maker:
             return False
@@ -159,16 +160,16 @@ class WhaleIngesterWorker:
         if usd_amount < self._cfg.whale_min_trade_usd:
             return False
 
-        # Parse timestamp
-        ts_str = trade.get("match_time") or trade.get("last_update")
+        # Timestamp is a Unix int
+        ts_raw = trade.get("timestamp")
         try:
-            block_time = datetime.fromisoformat(ts_str.replace("Z", "+00:00")) if ts_str else now
-        except (ValueError, AttributeError):
+            block_time = datetime.fromtimestamp(int(ts_raw), tz=timezone.utc) if ts_raw else now
+        except (ValueError, TypeError):
             block_time = now
 
-        # Resolve market
-        condition_id = trade.get("market") or ""
-        token_id = trade.get("asset_id") or ""
+        # Resolve market — conditionId is the Polymarket condition ID
+        condition_id = trade.get("conditionId") or ""
+        token_id = trade.get("asset") or ""
         market_id: Optional[UUID] = None
 
         if condition_id:

@@ -13,7 +13,7 @@ CREATE TYPE order_status_t    AS ENUM (
     'pending', 'open', 'filled', 'partially_filled',
     'cancelled', 'expired', 'failed'
 );
-CREATE TYPE position_status_t AS ENUM ('pending', 'open', 'closed');
+CREATE TYPE position_status_t AS ENUM ('pending', 'open', 'pending_close', 'closed');
 CREATE TYPE signal_type_t     AS ENUM (
     'whale_mirror', 'news', 'llm_directional', 'safe_compounder', 'manual'
 );

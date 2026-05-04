@@ -12,6 +12,7 @@ from backend.config.settings import get_settings
 from backend.db.models import (
     BlockedTradeInsert,
     CategoryScore,
+    CloseReason,
     DailyPnL,
     Exchange,
     LLMQuery,
@@ -311,6 +312,24 @@ class Database:
                 position_id,
                 realized_pnl,
                 close_reason,
+            )
+
+    async def set_position_closing(
+        self,
+        position_id: UUID,
+        close_reason: "CloseReason",
+    ) -> None:
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE positions
+                SET status = 'pending_close',
+                    close_reason = $2,
+                    updated_at = NOW()
+                WHERE id = $1 AND status = 'open'
+                """,
+                position_id,
+                close_reason.value,
             )
 
     async def get_closed_positions_today(

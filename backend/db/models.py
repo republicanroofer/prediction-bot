@@ -40,6 +40,7 @@ class OrderType(str, Enum):
 class PositionStatus(str, Enum):
     PENDING = "pending"
     OPEN = "open"
+    PENDING_CLOSE = "pending_close"
     CLOSED = "closed"
 
 

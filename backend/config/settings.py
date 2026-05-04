@@ -93,7 +93,7 @@ class Settings(BaseSettings):
 
     # ── Market scanning ─────────────────────────────────────────────────────
     scan_interval_s: int = 60
-    min_market_volume_usd: float = 1000.0
+    min_market_volume_usd: float = 100.0
     min_days_to_expiry: int = 1
     max_days_to_expiry: int = 90
 

@@ -119,8 +119,6 @@ class Orchestrator:
                 db=self.db,
                 kalshi=kalshi,
                 gamma=gamma,
-                order_manager=self.order_manager,
-                paper_engine=self.paper_engine,
                 stop_event=self._stop,
             )
             workers.append(scanner.run())
@@ -142,8 +140,6 @@ class Orchestrator:
             db=self.db,
             kalshi=kalshi,
             clob=clob,
-            order_manager=self.order_manager,
-            paper_engine=self.paper_engine,
             stop_event=self._stop,
         )
         workers.append(tracker.run())

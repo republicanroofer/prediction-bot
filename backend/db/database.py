@@ -645,7 +645,7 @@ class Database:
                     published_at, sentiment_score, relevance_score,
                     direction, keywords, raw
                 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-                ON CONFLICT (url) DO NOTHING
+                ON CONFLICT (url) WHERE url IS NOT NULL DO NOTHING
                 RETURNING id
                 """,
                 data.market_id,

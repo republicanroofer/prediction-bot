@@ -20,6 +20,7 @@ Rate-limit awareness:
 import asyncio
 import logging
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 MAX_MARKETS_PER_RUN = 15
 LOOKBACK_HOURS = 24
 MIN_RELEVANCE = 0.30  # discard very low-relevance articles
+GDELT_MIN_INTERVAL_S = 12  # minimum seconds between GDELT requests
 
 # Simple sentiment word lists for scoring
 _POS_WORDS = frozenset({
@@ -60,6 +62,7 @@ class NewsAnalyzerWorker:
         self._db = db
         self._stop = stop_event or asyncio.Event()
         self._cfg = get_settings()
+        self._last_gdelt_call: float = 0.0
 
     async def run(self) -> None:
         logger.info(
@@ -196,6 +199,12 @@ class NewsAnalyzerWorker:
     # ── GDELT ─────────────────────────────────────────────────────────────────
 
     async def _fetch_gdelt(self, query: str) -> list[dict]:
+        # Enforce minimum interval between GDELT calls across all markets
+        elapsed = time.monotonic() - self._last_gdelt_call
+        if elapsed < GDELT_MIN_INTERVAL_S:
+            await asyncio.sleep(GDELT_MIN_INTERVAL_S - elapsed)
+        self._last_gdelt_call = time.monotonic()
+
         params = {
             "query": query,
             "mode": "artlist",
@@ -209,8 +218,14 @@ class NewsAnalyzerWorker:
                 resp = await self._http.get(
                     self._cfg.gdelt_base_url, params=params
                 )
-                if resp.status_code == 429 or resp.status_code >= 500:
-                    await asyncio.sleep(2 ** attempt)
+                if resp.status_code == 429:
+                    wait = 15 * (attempt + 1)
+                    logger.warning("GDELT 429 — backing off %ds", wait)
+                    await asyncio.sleep(wait)
+                    self._last_gdelt_call = time.monotonic()
+                    continue
+                if resp.status_code >= 500:
+                    await asyncio.sleep(5 * (attempt + 1))
                     continue
                 if resp.status_code == 200:
                     data = resp.json()
@@ -220,7 +235,7 @@ class NewsAnalyzerWorker:
                 if attempt == 2:
                     logger.warning("GDELT request failed: %s", exc)
                     return []
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(5)
         return []
 
 

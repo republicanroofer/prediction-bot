@@ -468,7 +468,7 @@ class ScannerWorker:
             best = recent_signals[0]  # already sorted by relevance DESC
             relevance = float(best.relevance_score or 0)
             sentiment = float(best.sentiment_score or 0)
-            if relevance >= 0.4:
+            if relevance >= 0.3:
                 direction = best.direction or ("yes" if sentiment >= 0 else "no")
                 side = "yes" if direction in ("bullish_yes", "yes") else ("no" if direction in ("bullish_no", "no") else "yes")
                 confidence = min(0.65, 0.35 + relevance * 0.20 + abs(sentiment) * 0.15)
@@ -478,6 +478,27 @@ class ScannerWorker:
                     confidence,
                     {"headline": best.headline, "sentiment": sentiment},
                 )
+
+        # ── Volume-momentum signal ───────────────────────────────────────────
+        # Markets with unusually high 24h volume relative to total lifetime
+        # volume suggest active price discovery — trade toward the mid-price
+        # direction (yes if mid > 0.5, no if mid < 0.5).
+        vol_24h = float(market.volume_24h_usd or 0)
+        vol_total = float(market.volume_total_usd or 0)
+        days = market.days_to_close or 30
+        if vol_24h >= 5000 and vol_total > 0:
+            vol_ratio = vol_24h / vol_total
+            if vol_ratio >= 0.03:  # 24h vol is >= 3% of all-time
+                mid = market.yes_mid
+                if mid is not None and 0.15 <= mid <= 0.85:
+                    side = "yes" if mid >= 0.5 else "no"
+                    confidence = min(0.58, 0.40 + vol_ratio * 2.0 + (0.01 if days <= 14 else 0))
+                    return (
+                        SignalType.LLM_DIRECTIONAL,
+                        side,
+                        confidence,
+                        {"volume_ratio": round(vol_ratio, 4), "vol_24h": vol_24h},
+                    )
 
         return None
 

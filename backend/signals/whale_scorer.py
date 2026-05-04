@@ -239,7 +239,7 @@ class WhaleScorer:
             result = await conn.execute(
                 """
                 UPDATE whale_scores SET is_active = FALSE
-                WHERE (last_trade_at < $1 OR last_trade_at IS NULL)
+                WHERE COALESCE(last_trade_at, scored_at) < $1
                   AND is_active = TRUE
                 """,
                 stale_cutoff,

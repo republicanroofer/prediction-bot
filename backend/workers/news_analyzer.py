@@ -32,11 +32,10 @@ from backend.db.models import Exchange, Market, NewsSignalInsert
 
 logger = logging.getLogger(__name__)
 
-# Process at most this many markets per run to stay within API quotas
-MAX_MARKETS_PER_RUN = 15
+MAX_MARKETS_PER_RUN = 50
 LOOKBACK_HOURS = 24
-MIN_RELEVANCE = 0.30  # discard very low-relevance articles
-GDELT_MIN_INTERVAL_S = 20  # minimum seconds between GDELT requests (429 guard)
+MIN_RELEVANCE = 0.25
+GDELT_MIN_INTERVAL_S = 6
 
 # Simple sentiment word lists for scoring
 _POS_WORDS = frozenset({

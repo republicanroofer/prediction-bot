@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
@@ -173,6 +174,27 @@ async def decision_log(
     combined = [dict(r) for r in accepted] + [dict(r) for r in rejected]
     combined.sort(key=lambda x: str(x.get("ts", "")), reverse=True)
     return combined[:limit]
+
+
+@router.get("/decisions/live")
+async def decisions_live(
+    limit: int = Query(500, le=2000),
+    exchange: Optional[str] = Query(None),
+    decision: Optional[str] = Query(None),
+    signal_type: Optional[str] = Query(None),
+    db: Database = Depends(get_db),
+) -> list[dict]:
+    rows = await db.get_evaluation_decisions(
+        limit=limit,
+        exchange=exchange,
+        decision=decision,
+        signal_type=signal_type,
+    )
+    for r in rows:
+        for k, v in r.items():
+            if isinstance(v, UUID):
+                r[k] = str(v)
+    return rows
 
 
 @router.get("/exposure")

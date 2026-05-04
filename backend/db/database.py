@@ -790,6 +790,81 @@ class Database:
                 data.mode.value,
             )
 
+    # ── Evaluation decisions ─────────────────────────────────────────────────
+
+    async def insert_evaluation_decision(self, data: dict) -> None:
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO evaluation_decisions (
+                    market_id, external_market_id, market_title, exchange,
+                    signal_type, side, entry_price, edge, confidence,
+                    kelly_size_usd, decision, reason
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                """,
+                data.get("market_id"),
+                data.get("external_market_id"),
+                data.get("market_title"),
+                data["exchange"],
+                data.get("signal_type"),
+                data.get("side"),
+                data.get("entry_price"),
+                data.get("edge"),
+                data.get("confidence"),
+                data.get("kelly_size_usd"),
+                data["decision"],
+                data["reason"],
+            )
+
+    async def get_evaluation_decisions(
+        self,
+        limit: int = 500,
+        exchange: Optional[str] = None,
+        decision: Optional[str] = None,
+        signal_type: Optional[str] = None,
+    ) -> list[dict]:
+        async with self._pool.acquire() as conn:
+            clauses = ["TRUE"]
+            params: list[Any] = []
+            idx = 1
+
+            if exchange:
+                clauses.append(f"exchange = ${idx}")
+                params.append(exchange)
+                idx += 1
+            if decision:
+                clauses.append(f"decision = ${idx}")
+                params.append(decision)
+                idx += 1
+            if signal_type:
+                clauses.append(f"signal_type = ${idx}")
+                params.append(signal_type)
+                idx += 1
+
+            clauses.append(f"created_at >= NOW() - interval '24 hours'")
+
+            where = " AND ".join(clauses)
+            params.append(limit)
+
+            rows = await conn.fetch(
+                f"""
+                SELECT * FROM evaluation_decisions
+                WHERE {where}
+                ORDER BY created_at DESC
+                LIMIT ${idx}
+                """,
+                *params,
+            )
+            return [dict(r) for r in rows]
+
+    async def prune_old_evaluation_decisions(self, days: int = 7) -> int:
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                "DELETE FROM evaluation_decisions WHERE created_at < NOW() - ($1 || ' days')::interval",
+                str(days),
+            )
+            return int(result.split()[-1])
+
     # ── LLM cost tracking ─────────────────────────────────────────────────────
 
     async def get_llm_daily_cost_usd(self) -> float:

@@ -259,38 +259,64 @@ class ScannerWorker:
 
     async def _evaluate_market(self, market: Market) -> None:
         cfg = self._cfg
+        mkt_base = {
+            "market_id": market.id,
+            "external_market_id": market.external_id,
+            "market_title": market.title[:120],
+            "exchange": market.exchange.value,
+        }
 
         # ── Basic filters ─────────────────────────────────────────────────────
-        if not await self._passes_basic_filters(market):
+        reject_reason = self._check_basic_filters(market)
+        if reject_reason:
+            await self._log_decision(mkt_base, "rejected", reject_reason)
             return
 
         # ── Existing position check ───────────────────────────────────────────
         existing = await self._db.get_positions_for_market(market.id)
         if existing:
-            return  # already positioned
+            await self._log_decision(mkt_base, "rejected", "already positioned")
+            return
 
         # ── Category score gate ───────────────────────────────────────────────
         cat_score = await self._db.get_category_score(
             market.exchange, market.category or "unknown"
         )
         if cat_score and cat_score.is_blocked:
-            return  # hard block
+            await self._log_decision(
+                mkt_base, "rejected",
+                f"category blocked: {market.category}",
+            )
+            return
 
         # ── Signal detection ──────────────────────────────────────────────────
         signal = await self._detect_signal(market)
         if signal is None:
-            return  # no actionable signal
+            await self._log_decision(mkt_base, "rejected", "no signal")
+            return
 
         signal_type, side, confidence, whale_meta = signal
+        mkt_base["signal_type"] = signal_type.value
+        mkt_base["side"] = side
+        mkt_base["confidence"] = round(confidence, 4)
 
         # ── Mid-price ─────────────────────────────────────────────────────────
         entry_price = market.yes_mid if side == "yes" else market.no_mid
         if entry_price is None or not (0.05 <= entry_price <= 0.95):
-            return  # price too extreme
+            await self._log_decision(
+                mkt_base, "rejected",
+                f"price too extreme: {entry_price}",
+            )
+            return
+
+        mkt_base["entry_price"] = round(entry_price, 6)
+        edge = confidence - entry_price
+        mkt_base["edge"] = round(edge, 6)
 
         # ── Kelly position sizing ─────────────────────────────────────────────
         portfolio_value = await self._estimate_portfolio_value()
         if portfolio_value <= 0:
+            await self._log_decision(mkt_base, "rejected", "portfolio value <= 0")
             return
 
         size_usd = self._kelly_size(
@@ -299,10 +325,23 @@ class ScannerWorker:
             portfolio_usd=portfolio_value,
             cat_score=cat_score,
         )
-        if size_usd < 1.0:
-            return  # too small to bother
+        mkt_base["kelly_size_usd"] = round(size_usd, 2)
 
-        contracts = size_usd / entry_price  # Kalshi: 1 contract = $1 max payout
+        if edge <= 0:
+            await self._log_decision(
+                mkt_base, "rejected",
+                f"edge too low: {edge*100:.1f}%",
+            )
+            return
+
+        if size_usd < 1.0:
+            await self._log_decision(
+                mkt_base, "rejected",
+                f"kelly size too small: ${size_usd:.2f}",
+            )
+            return
+
+        contracts = size_usd / entry_price
 
         # ── Portfolio enforcer (4 gates) ──────────────────────────────────────
         block = await self._portfolio_enforcer_check(
@@ -317,6 +356,10 @@ class ScannerWorker:
         )
         if block:
             gate, reason = block
+            await self._log_decision(
+                mkt_base, "rejected",
+                f"risk gate [{gate}]: {reason}",
+            )
             await self._db.insert_blocked_trade(
                 BlockedTradeInsert(
                     exchange=market.exchange,
@@ -333,6 +376,18 @@ class ScannerWorker:
             )
             return
 
+        # ── Accepted — build reason string ────────────────────────────────────
+        signals_desc = signal_type.value.replace("_", " ")
+        if whale_meta.get("whale_score"):
+            signals_desc += f" (score {whale_meta['whale_score']:.0f})"
+        accept_reason = (
+            f"signal fired: {signals_desc} | "
+            f"edge {edge*100:.1f}% | "
+            f"kelly ${size_usd:.2f} | "
+            f"conf {confidence*100:.0f}%"
+        )
+        await self._log_decision(mkt_base, "accepted", accept_reason)
+
         # ── Create position + order records ───────────────────────────────────
         await self._open_position(
             market=market,
@@ -345,17 +400,32 @@ class ScannerWorker:
             whale_meta=whale_meta,
         )
 
-    async def _passes_basic_filters(self, market: Market) -> bool:
+    async def _log_decision(
+        self, base: dict, decision: str, reason: str,
+    ) -> None:
+        try:
+            await self._db.insert_evaluation_decision({
+                **base,
+                "decision": decision,
+                "reason": reason,
+            })
+        except Exception:
+            logger.debug("Failed to log evaluation decision", exc_info=True)
+
+    def _check_basic_filters(self, market: Market) -> Optional[str]:
+        """Return rejection reason string, or None if passed."""
         cfg = self._cfg
         vol = float(market.volume_24h_usd or 0)
         if vol < cfg.min_market_volume_usd:
-            return False
+            return f"volume too low: ${vol:.0f} < ${cfg.min_market_volume_usd:.0f}"
         days = market.days_to_close
         if days is None:
-            return False
-        if days < cfg.min_days_to_expiry or days > cfg.max_days_to_expiry:
-            return False
-        return True
+            return "no close date"
+        if days < cfg.min_days_to_expiry:
+            return f"expires too soon: {days:.1f}d < {cfg.min_days_to_expiry}d"
+        if days > cfg.max_days_to_expiry:
+            return f"expires too far: {days:.0f}d > {cfg.max_days_to_expiry}d"
+        return None
 
     async def _detect_signal(
         self, market: Market

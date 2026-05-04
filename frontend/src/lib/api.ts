@@ -11,16 +11,28 @@ export async function fetchJSON<T>(path: string): Promise<T> {
 export type Position = {
   id: string;
   exchange: string;
+  market_id?: string;
+  external_market_id?: string;
   side: string;
   status: string;
+  signal_type: string;
   avg_entry_price: number;
-  current_contracts: number;
+  contracts: number;
+  current_contracts?: number; // alias kept for compatibility
   cost_basis_usd: number;
+  current_price?: number;
+  market_value_usd?: number;
   unrealized_pnl?: number;
   realized_pnl?: number;
-  signal_type: string;
+  stop_loss_price?: number;
+  take_profit_price?: number;
+  kelly_fraction_used?: number;
+  whale_address?: string;
+  whale_score?: number;
   opened_at: string;
+  closed_at?: string;
   close_reason?: string;
+  max_hold_until?: string;
 };
 
 export type Order = {
@@ -136,6 +148,60 @@ export type ActivityEvent = {
   address?: string;
 };
 
+export type FunnelMetrics = {
+  markets_scanned: number;
+  signals_generated: number;
+  trades_blocked: number;
+  trades_executed: number;
+  period_hours: number;
+};
+
+export type Opportunity = {
+  market_id: string;
+  external_id: string;
+  title: string;
+  exchange: string;
+  category?: string;
+  yes_mid?: number;
+  confidence: number;
+  edge: number;
+  signal_type: string;
+  signal_headline?: string;
+  signal_source?: string;
+  relevance: number;
+  sentiment: number;
+  volume_24h?: number;
+  days_to_close?: number;
+};
+
+export type Decision = {
+  ts: string;
+  exchange: string;
+  market_title: string;
+  decision: "accepted" | "rejected";
+  signal_type?: string;
+  side?: string;
+  size_usd?: number;
+  price?: number;
+  gate?: string;
+  block_reason?: string;
+};
+
+export type CategoryExposure = {
+  category: string;
+  exchange: string;
+  positions_count: number;
+  exposure_usd: number;
+  unrealized_pnl: number;
+};
+
+export type PositionHistory = {
+  position: Record<string, any>;
+  orders: Record<string, any>[];
+  fills: Record<string, any>[];
+  market: Record<string, any> | null;
+};
+
 export type WsSnapshot = {
   type: "snapshot";
   positions: Position[];
@@ -155,4 +221,9 @@ export const api = {
   newsSignals: (hours = 24, limit = 50) => fetchJSON<NewsSignal[]>(`/signals/news?hours=${hours}&limit=${limit}`),
   whaleSignals: (hours = 24, limit = 50) => fetchJSON<WhaleTrade[]>(`/signals/whale?hours=${hours}&limit=${limit}`),
   activity: (hours = 24, limit = 100) => fetchJSON<ActivityEvent[]>(`/activity/?hours=${hours}&limit=${limit}`),
+  funnel: (hours = 24) => fetchJSON<FunnelMetrics>(`/analytics/funnel?hours=${hours}`),
+  opportunities: (limit = 20) => fetchJSON<Opportunity[]>(`/analytics/opportunities?limit=${limit}`),
+  decisions: (hours = 24, limit = 100) => fetchJSON<Decision[]>(`/analytics/decisions?hours=${hours}&limit=${limit}`),
+  exposure: () => fetchJSON<CategoryExposure[]>(`/analytics/exposure`),
+  positionHistory: (id: string) => fetchJSON<PositionHistory>(`/positions/${id}/history`),
 };

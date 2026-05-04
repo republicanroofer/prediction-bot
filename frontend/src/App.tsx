@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
+import { LiveTicker } from "./components/LiveTicker";
 import { Nav } from "./components/Nav";
 import { StatusBar } from "./components/StatusBar";
 import { Activity } from "./pages/Activity";
+import { Decisions } from "./pages/Decisions";
 import { Markets } from "./pages/Markets";
 import { Overview } from "./pages/Overview";
 import { Signals } from "./pages/Signals";
+import { TelegramSetup } from "./pages/TelegramSetup";
 import { Whales } from "./pages/Whales";
 import { api, type BotStatus, type DailyPnL } from "./lib/api";
 import { useWebSocket } from "./lib/useWebSocket";
@@ -31,14 +34,17 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col">
       <StatusBar status={status} connected={connected} />
+      <LiveTicker />
       <Nav active={tab} onChange={setTab} />
 
-      <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
+      <main className="flex-1 p-3 sm:p-6 max-w-7xl mx-auto w-full">
         {tab === "overview"  && <Overview snapshot={snapshot} pnlHistory={pnlHistory} />}
         {tab === "signals"   && <Signals />}
         {tab === "markets"   && <Markets />}
         {tab === "whales"    && <Whales />}
         {tab === "activity"  && <Activity />}
+        {tab === "decisions" && <Decisions />}
+        {tab === "telegram"  && <TelegramSetup />}
       </main>
     </div>
   );

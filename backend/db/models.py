@@ -157,7 +157,7 @@ class Position(BaseModel):
     def unrealized_pnl_pct(self) -> Optional[float]:
         if self.unrealized_pnl is None or self.cost_basis_usd == 0:
             return None
-        return float(self.unrealized_pnl / self.cost_basis_usd)
+        return float(self.unrealized_pnl) / float(self.cost_basis_usd)
 
     def should_stop_loss(self, stop_loss_pct: float) -> bool:
         pct = self.unrealized_pnl_pct()

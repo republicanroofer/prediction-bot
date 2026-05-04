@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     # ── Kalshi ──────────────────────────────────────────────────────────────
     kalshi_api_key_id: str = ""
     kalshi_private_key_path: Path = Path("kalshi_private_key.pem")
+    kalshi_private_key: str = ""          # inline PEM content (alternative to file)
     kalshi_base_url: str = "https://api.elections.kalshi.com"
     kalshi_request_delay_ms: int = 200     # stay under 5 req/s
     kalshi_max_retries: int = 5
@@ -87,7 +88,7 @@ class Settings(BaseSettings):
     # ── Whale mirroring ─────────────────────────────────────────────────────
     whale_mirror_delay_s: int = 45         # seconds to wait before mirroring
     whale_min_trade_usd: float = 500.0     # only mirror trades above this size
-    whale_min_score: float = 60.0          # minimum composite score to follow
+    whale_min_score: float = 35.0          # minimum composite score to follow
     whale_score_interval_s: int = 3600     # re-rank every hour
 
     # ── Market scanning ─────────────────────────────────────────────────────
@@ -137,8 +138,8 @@ class Settings(BaseSettings):
             if self.active_exchange in (ActiveExchange.KALSHI, ActiveExchange.BOTH):
                 if not self.kalshi_api_key_id:
                     missing.append("KALSHI_API_KEY_ID")
-                if not self.kalshi_private_key_path.exists():
-                    missing.append(f"kalshi key file at {self.kalshi_private_key_path}")
+                if not self.kalshi_private_key and not self.kalshi_private_key_path.exists():
+                    missing.append(f"KALSHI_PRIVATE_KEY or key file at {self.kalshi_private_key_path}")
             if self.active_exchange in (ActiveExchange.POLYMARKET, ActiveExchange.BOTH):
                 if not self.polygon_wallet_private_key:
                     missing.append("POLYGON_WALLET_PRIVATE_KEY")

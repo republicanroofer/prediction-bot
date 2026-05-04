@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # Minimum required composite category score to allow any trade
 _BLOCK_THRESHOLD = 30.0
 # Seconds of news signal recency required to count as "actionable"
-_NEWS_SIGNAL_RECENCY_HOURS = 4
+_NEWS_SIGNAL_RECENCY_HOURS = 24
 
 
 class ScannerWorker:
@@ -169,8 +169,8 @@ class ScannerWorker:
                 no_bid=no_bid,
                 no_ask=no_ask,
                 last_price=_safe_float(market.get("last_price_dollars") or market.get("last_price")),
-                volume_24h_usd=_safe_float(market.get("volume_24h")),
-                volume_total_usd=_safe_float(market.get("volume")),
+                volume_24h_usd=_kalshi_volume_usd(market),
+                volume_total_usd=_kalshi_volume_usd(market, field="volume_fp"),
                 open_interest=_safe_float(market.get("open_interest")),
                 close_time=close_time,
                 is_active=market.get("status") == "active",
@@ -398,10 +398,10 @@ class ScannerWorker:
             best = recent_signals[0]  # already sorted by relevance DESC
             relevance = float(best.relevance_score or 0)
             sentiment = float(best.sentiment_score or 0)
-            if relevance >= 0.6 and abs(sentiment) >= 0.3:
-                direction = best.direction or ("yes" if sentiment > 0 else "no")
-                side = "yes" if "yes" in direction else "no"
-                confidence = min(0.70, 0.40 + relevance * 0.20 + abs(sentiment) * 0.15)
+            if relevance >= 0.4:
+                direction = best.direction or ("yes" if sentiment >= 0 else "no")
+                side = "yes" if direction in ("bullish_yes", "yes") else ("no" if direction in ("bullish_no", "no") else "yes")
+                confidence = min(0.65, 0.35 + relevance * 0.20 + abs(sentiment) * 0.15)
                 return (
                     SignalType.NEWS,
                     side,
@@ -614,6 +614,21 @@ def _safe_float(v: object) -> Optional[float]:
         return f if math.isfinite(f) else None
     except (TypeError, ValueError):
         return None
+
+
+def _kalshi_volume_usd(market: dict, field: str = "volume_24h_fp") -> Optional[float]:
+    """Kalshi reports volume in contracts (field ends in _fp); multiply by mid-price to get USD."""
+    contracts = _safe_float(market.get(field))
+    if contracts is None:
+        return None
+    yes_bid = _safe_float(market.get("yes_bid_dollars") or market.get("yes_bid"))
+    yes_ask = _safe_float(market.get("yes_ask_dollars") or market.get("yes_ask"))
+    if yes_bid and yes_bid > 1:
+        yes_bid /= 100
+    if yes_ask and yes_ask > 1:
+        yes_ask /= 100
+    mid = ((yes_bid or 0) + (yes_ask or 0)) / 2 or 0.5
+    return round(contracts * mid, 2)
 
 
 def _normalise_category(raw: Optional[str]) -> Optional[str]:

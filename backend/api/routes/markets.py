@@ -22,26 +22,41 @@ async def list_markets(
     db: Database = Depends(get_db),
 ) -> list[Market]:
     async with db._pool.acquire() as conn:
-        conditions = []
-        params: list = []
-
-        if active_only:
-            conditions.append("is_active = TRUE")
+        active_clause = "is_active = TRUE" if active_only else "TRUE"
 
         if exchange:
-            params.append(exchange.value)
-            conditions.append(f"exchange = ${len(params)}::exchange_t")
-
-        if category:
-            params.append(category.lower())
-            conditions.append(f"LOWER(category) = ${len(params)}")
-
-        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        params.append(limit)
-        rows = await conn.fetch(
-            f"SELECT * FROM markets {where} ORDER BY volume_24h_usd DESC NULLS LAST LIMIT ${len(params)}",
-            *params,
-        )
+            # Single-exchange filter: simple query
+            conditions = [active_clause, f"exchange = $1::exchange_t"]
+            if category:
+                conditions.append("LOWER(category) = $2")
+                rows = await conn.fetch(
+                    f"SELECT * FROM markets WHERE {' AND '.join(conditions)} "
+                    f"ORDER BY volume_24h_usd DESC NULLS LAST LIMIT $3",
+                    exchange.value, category.lower(), limit,
+                )
+            else:
+                rows = await conn.fetch(
+                    f"SELECT * FROM markets WHERE {' AND '.join(conditions)} "
+                    f"ORDER BY volume_24h_usd DESC NULLS LAST LIMIT $2",
+                    exchange.value, limit,
+                )
+        else:
+            # No exchange filter: UNION ALL so both exchanges always get representation
+            half = limit // 2
+            cat_clause = f"AND LOWER(category) = $1" if category else ""
+            cat_params = [category.lower()] if category else []
+            n = len(cat_params)
+            rows = await conn.fetch(
+                f"""
+                (SELECT * FROM markets WHERE {active_clause} AND exchange = 'kalshi'::exchange_t {cat_clause}
+                 ORDER BY volume_24h_usd DESC NULLS LAST LIMIT ${n+1})
+                UNION ALL
+                (SELECT * FROM markets WHERE {active_clause} AND exchange = 'polymarket'::exchange_t {cat_clause}
+                 ORDER BY volume_24h_usd DESC NULLS LAST LIMIT ${n+2})
+                ORDER BY volume_24h_usd DESC NULLS LAST
+                """,
+                *cat_params, half, limit - half,
+            )
     return [Market.model_validate(dict(r)) for r in rows]
 
 

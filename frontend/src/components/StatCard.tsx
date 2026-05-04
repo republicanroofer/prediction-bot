@@ -14,10 +14,10 @@ export function StatCard({ label, value, sub, positive, negative }: Props) {
     : "text-white";
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-      <p className="text-gray-400 text-xs uppercase tracking-wider mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${valueColor}`}>{value}</p>
-      {sub && <p className="text-gray-500 text-xs mt-1">{sub}</p>}
+    <div className="bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
+      <p className="text-gray-400 text-[10px] sm:text-xs uppercase tracking-wider mb-1">{label}</p>
+      <p className={`text-lg sm:text-2xl font-bold ${valueColor}`}>{value}</p>
+      {sub && <p className="text-gray-500 text-[10px] sm:text-xs mt-1">{sub}</p>}
     </div>
   );
 }

@@ -166,8 +166,8 @@ class WhaleScorer:
 
             # Leaderboard doesn't expose win/loss breakdown directly;
             # approximate from pnl/volume ratio
-            implied_win_rate = min(0.70, max(0.35, 0.50 + pnl / max(volume, 1) * 0.3))
-            big_win_rate = implied_win_rate * 0.55
+            implied_win_rate = min(0.85, max(0.35, 0.50 + pnl / max(volume, 1) * 0.5))
+            big_win_rate = implied_win_rate * 0.75
             median_gain = pnl / max(markets, 1) / max(volume / max(markets, 1), 1)
             median_gain = max(-0.50, min(0.50, median_gain))
 

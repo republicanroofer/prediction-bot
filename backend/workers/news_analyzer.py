@@ -91,6 +91,8 @@ class NewsAnalyzerWorker:
 
     async def _analyze(self) -> None:
         markets = await self._db.get_active_markets()
+        # Only analyze markets that close in 1–90 days (matches scanner filters)
+        markets = [m for m in markets if m.days_to_close is not None and 1 <= m.days_to_close <= 90]
         # Prioritise markets with higher volume (most likely to have news)
         markets.sort(key=lambda m: float(m.volume_24h_usd or 0), reverse=True)
         batch = markets[:MAX_MARKETS_PER_RUN]
@@ -180,8 +182,8 @@ class NewsAnalyzerWorker:
                     "https://newsapi.org/v2/everything", params=params
                 )
                 if resp.status_code == 429:
-                    await asyncio.sleep(60)
-                    continue
+                    logger.debug("NewsAPI 429 — daily quota likely exhausted, skipping")
+                    return []
                 if resp.status_code == 426:
                     # Upgrade required — free tier endpoint limit
                     logger.warning("NewsAPI: free tier endpoint limit hit")

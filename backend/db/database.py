@@ -148,19 +148,28 @@ class Database:
             return Market.model_validate(dict(row)) if row else None
 
     async def get_active_markets(
-        self, exchange: Optional[Exchange] = None
+        self,
+        exchange: Optional[Exchange] = None,
+        min_volume_usd: float = 1.0,
     ) -> list[Market]:
         async with self._pool.acquire() as conn:
             if exchange:
                 rows = await conn.fetch(
-                    "SELECT * FROM markets WHERE is_active = TRUE AND is_resolved = FALSE"
-                    " AND exchange = $1 ORDER BY volume_24h_usd DESC NULLS LAST",
+                    "SELECT * FROM markets"
+                    " WHERE is_active = TRUE AND is_resolved = FALSE"
+                    " AND exchange = $1"
+                    " AND COALESCE(volume_24h_usd, 0) >= $2"
+                    " ORDER BY volume_24h_usd DESC NULLS LAST",
                     exchange.value,
+                    min_volume_usd,
                 )
             else:
                 rows = await conn.fetch(
-                    "SELECT * FROM markets WHERE is_active = TRUE AND is_resolved = FALSE"
-                    " ORDER BY volume_24h_usd DESC NULLS LAST"
+                    "SELECT * FROM markets"
+                    " WHERE is_active = TRUE AND is_resolved = FALSE"
+                    " AND COALESCE(volume_24h_usd, 0) >= $1"
+                    " ORDER BY volume_24h_usd DESC NULLS LAST",
+                    min_volume_usd,
                 )
             return [Market.model_validate(dict(r)) for r in rows]
 

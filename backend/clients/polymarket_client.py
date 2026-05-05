@@ -93,37 +93,68 @@ class GammaClient:
         active: bool = True,
         closed: bool = False,
         archived: bool = False,
+        order_by: str | None = None,
+        ascending: bool = False,
     ) -> list[dict]:
-        return await self._get("/markets", params={
+        params: dict = {
             "limit": limit,
             "offset": offset,
             "active": str(active).lower(),
             "closed": str(closed).lower(),
             "archived": str(archived).lower(),
-        })
+        }
+        if order_by:
+            params["order"] = order_by
+            params["ascending"] = str(ascending).lower()
+        return await self._get("/markets", params=params)
 
-    async def get_all_markets(self, active_only: bool = True) -> list[dict]:
+    async def get_all_markets(
+        self,
+        active_only: bool = True,
+        order_by: str | None = None,
+        ascending: bool = False,
+        max_total: int | None = None,
+    ) -> list[dict]:
         markets: list[dict] = []
         offset = 0
         limit = 500
         while True:
-            batch = await self.get_markets(limit=limit, offset=offset, active=active_only)
+            remaining = (max_total - len(markets)) if max_total else limit
+            batch_size = min(limit, remaining) if max_total else limit
+            batch = await self.get_markets(
+                limit=batch_size,
+                offset=offset,
+                active=active_only,
+                order_by=order_by,
+                ascending=ascending,
+            )
             if not batch:
                 break
             markets.extend(batch)
-            if len(batch) < limit:
+            if max_total and len(markets) >= max_total:
                 break
-            offset += limit
+            if len(batch) < batch_size:
+                break
+            offset += batch_size
         return markets
 
     async def get_market(self, condition_id: str) -> dict:
         return await self._get(f"/markets/{condition_id}")
 
-    async def get_clob_tradable_markets(self) -> list[dict]:
-        """Return only markets with valid CLOB token IDs (i.e. actually tradeable)."""
-        all_markets = await self.get_all_markets()
+    async def get_clob_tradable_markets(self, max_total: int = 2000) -> list[dict]:
+        """
+        Return CLOB-tradable markets sorted by 24h volume descending, capped at
+        max_total. Fetching all 50k+ markets is wasteful — the top 2,000 by volume
+        covers every market worth trading.
+        """
+        markets = await self.get_all_markets(
+            active_only=True,
+            order_by="volume24hr",
+            ascending=False,
+            max_total=max_total,
+        )
         return [
-            m for m in all_markets
+            m for m in markets
             if m.get("clobTokenIds") and m.get("active") and not m.get("closed")
         ]
 

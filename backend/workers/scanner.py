@@ -131,13 +131,22 @@ class ScannerWorker:
             logger.warning("Kalshi event fetch failed: %s", exc)
             return
 
-        upserted = 0
+        upserted = skipped = 0
         for event in events:
             for market in event.get("markets", []):
+                # Skip new zero-volume markets — they won't pass the scanner
+                # filter and would just bloat the DB indefinitely.
+                vol = _kalshi_volume_usd(market)
+                if not vol or vol < 1.0:
+                    skipped += 1
+                    continue
                 await self._upsert_kalshi_market(event, market)
                 upserted += 1
 
-        logger.debug("Kalshi: upserted %d markets from %d events", upserted, len(events))
+        logger.debug(
+            "Kalshi: upserted %d markets (%d zero-vol skipped) from %d events",
+            upserted, skipped, len(events),
+        )
 
     async def _upsert_kalshi_market(self, event: dict, market: dict) -> None:
         ticker = market.get("ticker", "")
@@ -267,7 +276,9 @@ class ScannerWorker:
     # ── Signal evaluation ─────────────────────────────────────────────────────
 
     async def _evaluate_all_markets(self) -> None:
-        markets = await self._db.get_active_markets()
+        markets = await self._db.get_active_markets(
+            min_volume_usd=self._cfg.min_market_volume_usd
+        )
         cfg = self._cfg
         self._new_positions_this_scan = 0
         self._scan_exposure_usd = 0.0

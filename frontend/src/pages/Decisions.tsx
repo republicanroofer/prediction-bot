@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type DecisionSummary, type EvalDecision } from "../lib/api";
+import { api, n, type DecisionSummary, type EvalDecision } from "../lib/api";
 
 const REASON_COLORS: Record<string, string> = {
   "volume too low": "bg-gray-700",
@@ -214,20 +214,14 @@ export function Decisions() {
   );
 }
 
-function num(v: unknown): number | null {
-  if (v == null) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
 function DecisionRow({ d, onReasonClick }: { d: EvalDecision; onReasonClick: (r: string) => void }) {
   const accepted = d.decision === "accepted";
-  const edge = num(d.edge);
+  const edge = d.edge != null ? n(d.edge) : null;
   const edgePct = edge != null ? (edge * 100).toFixed(1) : null;
   const edgeColor = (edge ?? 0) > 0.05 ? "text-green-400" : (edge ?? 0) > 0 ? "text-yellow-400" : "text-gray-500";
   const reasonPrefix = d.reason.split(":")[0];
-  const entryPrice = num(d.entry_price);
-  const kelly = num(d.kelly_size_usd);
+  const entryPrice = d.entry_price != null ? n(d.entry_price) : null;
+  const kelly = d.kelly_size_usd != null ? n(d.kelly_size_usd) : null;
 
   return (
     <tr className={`border-b border-gray-800/50 hover:bg-gray-800/30 ${accepted ? "bg-green-950/10" : ""}`}>

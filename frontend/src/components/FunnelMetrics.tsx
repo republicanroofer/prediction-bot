@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type FunnelMetrics as FM } from "../lib/api";
+import { api, n, type FunnelMetrics as FM } from "../lib/api";
 
 export function FunnelMetrics() {
   const [data, setData] = useState<FM | null>(null);
@@ -19,15 +19,16 @@ export function FunnelMetrics() {
 
   if (!data) return null;
 
+  const scanned = n(data.markets_scanned);
   const steps = [
-    { label: "Markets Scanned", value: data.markets_scanned, color: "text-gray-300" },
-    { label: "Signals Generated", value: data.signals_generated, color: "text-yellow-400" },
-    { label: "Trades Blocked", value: data.trades_blocked, color: "text-red-400" },
-    { label: "Trades Executed", value: data.trades_executed, color: "text-green-400" },
+    { label: "Markets Scanned", value: scanned, color: "text-gray-300" },
+    { label: "Signals Generated", value: n(data.signals_generated), color: "text-yellow-400" },
+    { label: "Trades Blocked", value: n(data.trades_blocked), color: "text-red-400" },
+    { label: "Trades Executed", value: n(data.trades_executed), color: "text-green-400" },
   ];
 
-  const passRate = data.markets_scanned > 0
-    ? ((data.trades_executed / data.markets_scanned) * 100).toFixed(2)
+  const passRate = scanned > 0
+    ? ((n(data.trades_executed) / scanned) * 100).toFixed(2)
     : "0";
 
   return (

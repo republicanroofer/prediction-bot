@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
-import { api, type CategoryExposure } from "../lib/api";
+import { api, n, type CategoryExposure } from "../lib/api";
 
 const COLORS = ["#0ea5e9", "#8b5cf6", "#22c55e", "#eab308", "#ef4444", "#f97316", "#ec4899", "#6366f1"];
 
@@ -12,7 +12,7 @@ export function ExposurePieChart() {
     async function load() {
       try {
         const d = await api.exposure();
-        if (!c) setData(d.filter((e) => Number(e.exposure_usd) > 0));
+        if (!c) setData(d.filter((e) => n(e.exposure_usd) > 0));
       } catch {}
     }
     load();
@@ -31,7 +31,7 @@ export function ExposurePieChart() {
 
   const chartData = data.map((d) => ({
     name: d.category || "unknown",
-    value: Number(d.exposure_usd),
+    value: n(d.exposure_usd),
     count: d.positions_count,
   }));
 
@@ -56,7 +56,7 @@ export function ExposurePieChart() {
             </Pie>
             <Tooltip
               contentStyle={{ backgroundColor: "#1f2937", border: "1px solid #374151", borderRadius: 8, fontSize: 12 }}
-              formatter={(v: number) => [`$${v.toFixed(2)}`, "Exposure"]}
+              formatter={(v: number) => [`$${n(v).toFixed(2)}`, "Exposure"]}
             />
           </PieChart>
         </ResponsiveContainer>
@@ -65,7 +65,7 @@ export function ExposurePieChart() {
             <div key={d.name} className="flex items-center gap-1.5">
               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
               <span className="text-gray-400 capitalize">{d.name}</span>
-              <span className="text-gray-600">${d.value.toFixed(0)}</span>
+              <span className="text-gray-600">${n(d.value).toFixed(0)}</span>
             </div>
           ))}
         </div>

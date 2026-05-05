@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
-import { api, type NewsSignal, type WhaleTrade } from "../lib/api";
+import { api, n, type NewsSignal, type WhaleTrade } from "../lib/api";
 
 export function Signals() {
   const [tab, setTab] = useState<"news" | "whale">("news");
@@ -58,8 +58,8 @@ function NewsPanel({ signals }: { signals: NewsSignal[] }) {
   return (
     <div className="space-y-2">
       {signals.map((s) => {
-        const sent = Number(s.sentiment_score ?? 0);
-        const rel = Number(s.relevance_score ?? 0);
+        const sent = n(s.sentiment_score);
+        const rel = n(s.relevance_score);
         const sentColor = sent > 0.1 ? "text-green-400" : sent < -0.1 ? "text-red-400" : "text-gray-400";
         const dirBg = s.direction === "yes" ? "bg-green-900/50 text-green-300" : s.direction === "no" ? "bg-red-900/50 text-red-300" : "bg-gray-800 text-gray-400";
         return (
@@ -132,8 +132,8 @@ function WhaleSignalPanel({ trades }: { trades: WhaleTrade[] }) {
                   {t.maker_direction.toUpperCase()}
                 </span>
               </td>
-              <td className="py-1.5 pr-4 font-mono">${Number(t.usd_amount).toFixed(2)}</td>
-              <td className="py-1.5 pr-4 font-mono">{Number(t.price).toFixed(3)}</td>
+              <td className="py-1.5 pr-4 font-mono">${n(t.usd_amount).toFixed(2)}</td>
+              <td className="py-1.5 pr-4 font-mono">{n(t.price).toFixed(3)}</td>
               <td className="py-1.5">
                 {t.whale_score != null ? (
                   <ScorePill score={Number(t.whale_score)} />
@@ -161,8 +161,9 @@ function SentimentBar({ value }: { value: number }) {
 }
 
 function ScorePill({ score }: { score: number }) {
-  const color = score >= 80 ? "bg-green-900/60 text-green-300" : score >= 60 ? "bg-yellow-900/60 text-yellow-300" : "bg-gray-800 text-gray-400";
-  return <span className={`px-2 py-0.5 rounded text-xs font-mono font-semibold ${color}`}>{score.toFixed(0)}</span>;
+  const s = n(score);
+  const color = s >= 80 ? "bg-green-900/60 text-green-300" : s >= 60 ? "bg-yellow-900/60 text-yellow-300" : "bg-gray-800 text-gray-400";
+  return <span className={`px-2 py-0.5 rounded text-xs font-mono font-semibold ${color}`}>{s.toFixed(0)}</span>;
 }
 
 function fmtDate(iso: string) {

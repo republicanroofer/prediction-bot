@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Opportunity } from "../lib/api";
+import { api, n, type Opportunity } from "../lib/api";
 
 export function OpportunitiesQueue() {
   const [items, setItems] = useState<Opportunity[]>([]);
@@ -46,7 +46,8 @@ export function OpportunitiesQueue() {
           </thead>
           <tbody>
             {items.map((o) => {
-              const edgeColor = o.edge > 0.1 ? "text-green-400" : o.edge > 0 ? "text-yellow-400" : "text-gray-500";
+              const edge = n(o.edge);
+              const edgeColor = edge > 0.1 ? "text-green-400" : edge > 0 ? "text-yellow-400" : "text-gray-500";
               return (
                 <tr key={o.market_id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
                   <td className="py-1.5 pr-3 text-gray-300 max-w-[200px] truncate" title={o.title}>
@@ -55,13 +56,13 @@ export function OpportunitiesQueue() {
                   <td className="py-1.5 pr-3 text-gray-500 text-xs hidden sm:table-cell">
                     {o.exchange === "kalshi" ? "KALSHI" : "POLY"}
                   </td>
-                  <td className="py-1.5 pr-3">{o.yes_mid ? `${(o.yes_mid * 100).toFixed(0)}¢` : "—"}</td>
+                  <td className="py-1.5 pr-3">{o.yes_mid ? `${(n(o.yes_mid) * 100).toFixed(0)}¢` : "—"}</td>
                   <td className={`py-1.5 pr-3 font-semibold ${edgeColor}`}>
-                    {o.edge > 0 ? "+" : ""}{(o.edge * 100).toFixed(1)}%
+                    {edge > 0 ? "+" : ""}{(edge * 100).toFixed(1)}%
                   </td>
-                  <td className="py-1.5 pr-3 text-gray-400 hidden md:table-cell">{(o.confidence * 100).toFixed(0)}%</td>
-                  <td className="py-1.5 pr-3 text-gray-400 hidden lg:table-cell">{(o.relevance * 100).toFixed(0)}%</td>
-                  <td className="py-1.5 text-gray-500 hidden lg:table-cell">{o.days_to_close?.toFixed(0) ?? "—"}</td>
+                  <td className="py-1.5 pr-3 text-gray-400 hidden md:table-cell">{(n(o.confidence) * 100).toFixed(0)}%</td>
+                  <td className="py-1.5 pr-3 text-gray-400 hidden lg:table-cell">{(n(o.relevance) * 100).toFixed(0)}%</td>
+                  <td className="py-1.5 text-gray-500 hidden lg:table-cell">{o.days_to_close != null ? n(o.days_to_close).toFixed(0) : "—"}</td>
                 </tr>
               );
             })}

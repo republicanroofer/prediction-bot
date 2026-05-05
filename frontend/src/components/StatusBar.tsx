@@ -1,4 +1,4 @@
-import type { BotStatus } from "../lib/api";
+import { n, type BotStatus } from "../lib/api";
 
 type Props = {
   status: BotStatus | null;
@@ -17,11 +17,11 @@ export function StatusBar({ status, connected }: Props) {
           <Tag label="mode" value={status.mode.toUpperCase()} colored={status.mode === "live"} />
           <Tag label="exchange" value={status.exchange} />
           <Tag label="positions" value={String(status.open_positions)} />
-          <Tag label="exposure" value={`$${status.total_exposure_usd.toFixed(0)}`} />
-          <Tag label="kelly" value={`${(status.kelly_fraction * 100).toFixed(0)}%`} />
+          <Tag label="exposure" value={`$${n(status.total_exposure_usd).toFixed(0)}`} />
+          <Tag label="kelly" value={`${(n(status.kelly_fraction) * 100).toFixed(0)}%`} />
           <PaperBalance
-            balance={status.paper_balance}
-            returnPct={status.paper_return_pct}
+            balance={n(status.paper_balance)}
+            returnPct={n(status.paper_return_pct)}
           />
         </>
       )}

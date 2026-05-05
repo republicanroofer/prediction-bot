@@ -1,5 +1,11 @@
 const BASE = "/api/v1";
 
+export function n(v: unknown, fallback = 0): number {
+  if (v == null) return fallback;
+  const x = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(x) ? x : fallback;
+}
+
 export async function fetchJSON<T>(path: string): Promise<T> {
   const res = await fetch(BASE + path);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);

@@ -5,7 +5,7 @@ import { PnLChart } from "../components/PnLChart";
 import { PositionsTable } from "../components/PositionsTable";
 import { StatCard } from "../components/StatCard";
 import { StrategyBreakdown } from "../components/StrategyBreakdown";
-import type { DailyPnL, Position, WsSnapshot } from "../lib/api";
+import { n, type DailyPnL, type Position, type WsSnapshot } from "../lib/api";
 
 type Props = {
   snapshot: WsSnapshot | null;
@@ -16,11 +16,11 @@ export function Overview({ snapshot, pnlHistory }: Props) {
   const positions: Position[] = snapshot?.positions ?? [];
   const livePnl = snapshot?.pnl;
 
-  const totalRealized = pnlHistory.reduce((s, d) => s + d.realized_pnl, 0);
-  const totalWins = pnlHistory.reduce((s, d) => s + d.num_wins, 0);
-  const totalTrades = pnlHistory.reduce((s, d) => s + d.num_wins + d.num_losses, 0);
+  const totalRealized = pnlHistory.reduce((s, d) => s + n(d.realized_pnl), 0);
+  const totalWins = pnlHistory.reduce((s, d) => s + n(d.num_wins), 0);
+  const totalTrades = pnlHistory.reduce((s, d) => s + n(d.num_wins) + n(d.num_losses), 0);
   const winRate = totalTrades > 0 ? totalWins / totalTrades : 0;
-  const exposure = positions.reduce((s, p) => s + Number(p.cost_basis_usd), 0);
+  const exposure = positions.reduce((s, p) => s + n(p.cost_basis_usd), 0);
 
   return (
     <div className="space-y-6">

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
-import { api, type ActivityEvent } from "../lib/api";
+import { api, n, type ActivityEvent } from "../lib/api";
 
 const EVENT_META: Record<ActivityEvent["event_type"], { icon: string; label: string; color: string }> = {
   position_opened: { icon: "▶", label: "Opened",  color: "text-green-400" },
@@ -111,18 +111,18 @@ function EventRow({ event: e }: { event: ActivityEvent; isNew: boolean }) {
       {/* Amounts / reason */}
       <span className="shrink-0 text-xs text-right min-w-[80px]">
         {e.event_type === "position_opened" && e.size_usd != null && (
-          <span className="text-gray-300">${e.size_usd.toFixed(2)}</span>
+          <span className="text-gray-300">${n(e.size_usd).toFixed(2)}</span>
         )}
         {e.event_type === "position_closed" && e.pnl != null && (
-          <span className={e.pnl >= 0 ? "text-green-400 font-semibold" : "text-red-400 font-semibold"}>
-            {e.pnl >= 0 ? "+" : ""}${e.pnl.toFixed(2)}
+          <span className={n(e.pnl) >= 0 ? "text-green-400 font-semibold" : "text-red-400 font-semibold"}>
+            {n(e.pnl) >= 0 ? "+" : ""}${n(e.pnl).toFixed(2)}
           </span>
         )}
         {e.event_type === "trade_blocked" && e.gate && (
           <span className="text-red-400/80">{e.gate.replace("_", " ")}</span>
         )}
         {e.event_type === "whale_queued" && e.size_usd != null && (
-          <span className="text-yellow-400">${e.size_usd.toFixed(0)}</span>
+          <span className="text-yellow-400">${n(e.size_usd).toFixed(0)}</span>
         )}
       </span>
 

@@ -8,7 +8,7 @@ import { Markets } from "./pages/Markets";
 import { Overview } from "./pages/Overview";
 import { Signals } from "./pages/Signals";
 import { Whales } from "./pages/Whales";
-import { api, type BotStatus, type DailyPnL } from "./lib/api";
+import { api, n, type BotStatus, type DailyPnL } from "./lib/api";
 import { useWebSocket } from "./lib/useWebSocket";
 
 export default function App() {
@@ -35,7 +35,7 @@ export default function App() {
         ...status,
         open_positions: snapshot.positions.length,
         total_exposure_usd: snapshot.positions.reduce(
-          (s, p) => s + Number(p.cost_basis_usd), 0
+          (s, p) => s + n(p.cost_basis_usd), 0
         ),
       }
     : status;

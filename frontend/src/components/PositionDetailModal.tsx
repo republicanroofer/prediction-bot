@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Position, type Order } from "../lib/api";
+import { api, n, type Position, type Order } from "../lib/api";
 
 type Props = {
   position: Position;
@@ -14,7 +14,7 @@ export function PositionDetailModal({ position, onClose }: Props) {
   }, [position.id]);
 
   const p = position;
-  const pnl = Number(p.unrealized_pnl ?? 0);
+  const pnl = n(p.unrealized_pnl);
   const pnlColor = pnl > 0 ? "text-green-400" : pnl < 0 ? "text-red-400" : "text-gray-400";
 
   return (
@@ -39,12 +39,12 @@ export function PositionDetailModal({ position, onClose }: Props) {
 
         <div className="grid grid-cols-2 gap-3 mb-4">
           {[
-            ["Entry Price", `${(Number(p.avg_entry_price) * 100).toFixed(1)}¢`],
-            ["Contracts", Number(p.current_contracts).toFixed(0)],
-            ["Cost Basis", `$${Number(p.cost_basis_usd).toFixed(2)}`],
+            ["Entry Price", `${(n(p.avg_entry_price) * 100).toFixed(1)}¢`],
+            ["Contracts", n(p.current_contracts).toFixed(0)],
+            ["Cost Basis", `$${n(p.cost_basis_usd).toFixed(2)}`],
             ["Status", p.status],
             ["Unrealized P&L", `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`],
-            ["Realized P&L", p.realized_pnl != null ? `$${Number(p.realized_pnl).toFixed(2)}` : "—"],
+            ["Realized P&L", p.realized_pnl != null ? `$${n(p.realized_pnl).toFixed(2)}` : "—"],
           ].map(([label, value]) => (
             <div key={String(label)}>
               <div className="text-[10px] text-gray-500 uppercase">{label}</div>
@@ -62,7 +62,7 @@ export function PositionDetailModal({ position, onClose }: Props) {
               {orders.map((o) => (
                 <div key={o.id} className="flex justify-between text-xs text-gray-400">
                   <span>{o.is_opening ? "OPEN" : "CLOSE"} {o.side.toUpperCase()}</span>
-                  <span>{Number(o.requested_contracts).toFixed(0)} @ {(Number(o.requested_price) * 100).toFixed(1)}¢</span>
+                  <span>{n(o.requested_contracts).toFixed(0)} @ {(n(o.requested_price) * 100).toFixed(1)}¢</span>
                   <span className="text-gray-600">{o.status}</span>
                 </div>
               ))}

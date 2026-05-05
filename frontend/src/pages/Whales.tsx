@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
-import { api, type WhaleTrade, type WhaleScore } from "../lib/api";
+import { api, n, type WhaleTrade, type WhaleScore } from "../lib/api";
 
 export function Whales() {
   const [scores, setScores] = useState<WhaleScore[]>([]);
@@ -68,16 +68,16 @@ export function Whales() {
                       {s.display_name ?? `${s.address.slice(0, 6)}…${s.address.slice(-4)}`}
                     </td>
                     <td className="py-1.5 pr-3 text-right">
-                      <ScorePill score={Number(s.composite_score ?? 0)} />
+                      <ScorePill score={n(s.composite_score)} />
                     </td>
                     <td className="py-1.5 pr-3 text-right font-mono text-xs">
-                      {s.win_rate != null ? `${(Number(s.win_rate) * 100).toFixed(1)}%` : "—"}
+                      {s.win_rate != null ? `${(n(s.win_rate) * 100).toFixed(1)}%` : "—"}
                     </td>
                     <td className="py-1.5 pr-3 text-right font-mono text-xs text-green-400">
-                      {s.big_win_rate != null ? `${(Number(s.big_win_rate) * 100).toFixed(1)}%` : "—"}
+                      {s.big_win_rate != null ? `${(n(s.big_win_rate) * 100).toFixed(1)}%` : "—"}
                     </td>
                     <td className="py-1.5 pr-3 text-right font-mono text-xs">
-                      {s.median_gain_pct != null ? `${(Number(s.median_gain_pct) * 100).toFixed(1)}%` : "—"}
+                      {s.median_gain_pct != null ? `${(n(s.median_gain_pct) * 100).toFixed(1)}%` : "—"}
                     </td>
                     <td className="py-1.5 pr-3 text-right text-gray-400">{s.markets_traded ?? "—"}</td>
                     <td className="py-1.5 text-right text-xs text-gray-500">
@@ -134,8 +134,8 @@ export function Whales() {
                         {t.maker_direction.toUpperCase()}
                       </span>
                     </td>
-                    <td className="py-1.5 pr-3 text-right font-mono">${Number(t.usd_amount).toFixed(2)}</td>
-                    <td className="py-1.5 pr-3 text-right font-mono text-xs">{Number(t.price).toFixed(3)}</td>
+                    <td className="py-1.5 pr-3 text-right font-mono">${n(t.usd_amount).toFixed(2)}</td>
+                    <td className="py-1.5 pr-3 text-right font-mono text-xs">{n(t.price).toFixed(3)}</td>
                     <td className="py-1.5 text-center text-xs">
                       {t.mirrored ? "✅" : t.mirror_queued_at ? "⏳" : "—"}
                     </td>
@@ -151,8 +151,9 @@ export function Whales() {
 }
 
 function ScorePill({ score }: { score: number }) {
-  const color = score >= 80 ? "bg-green-900/60 text-green-300" : score >= 60 ? "bg-yellow-900/60 text-yellow-300" : "bg-gray-800 text-gray-400";
-  return <span className={`px-2 py-0.5 rounded text-xs font-mono font-semibold ${color}`}>{score.toFixed(0)}</span>;
+  const s = n(score);
+  const color = s >= 80 ? "bg-green-900/60 text-green-300" : s >= 60 ? "bg-yellow-900/60 text-yellow-300" : "bg-gray-800 text-gray-400";
+  return <span className={`px-2 py-0.5 rounded text-xs font-mono font-semibold ${color}`}>{s.toFixed(0)}</span>;
 }
 
 function fmtDate(iso: string) {

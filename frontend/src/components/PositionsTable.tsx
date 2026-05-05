@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Position } from "../lib/api";
+import { n, type Position } from "../lib/api";
 import { PositionDetailModal } from "./PositionDetailModal";
 
 type Props = { positions: Position[] };
@@ -32,7 +32,7 @@ export function PositionsTable({ positions }: Props) {
           </thead>
           <tbody>
             {positions.map((p) => {
-              const pnl = p.unrealized_pnl ?? 0;
+              const pnl = n(p.unrealized_pnl);
               const pnlColor = pnl > 0 ? "text-green-400" : pnl < 0 ? "text-red-400" : "text-gray-400";
               return (
                 <tr
@@ -47,9 +47,9 @@ export function PositionsTable({ positions }: Props) {
                     </span>
                   </td>
                   <td className="py-1.5 pr-4 text-gray-400">{p.status}</td>
-                  <td className="py-1.5 pr-4">{(Number(p.avg_entry_price) * 100).toFixed(1)}¢</td>
-                  <td className="py-1.5 pr-4">{Number(p.current_contracts).toFixed(0)}</td>
-                  <td className="py-1.5 pr-4">${Number(p.cost_basis_usd).toFixed(2)}</td>
+                  <td className="py-1.5 pr-4">{(n(p.avg_entry_price) * 100).toFixed(1)}¢</td>
+                  <td className="py-1.5 pr-4">{n(p.current_contracts).toFixed(0)}</td>
+                  <td className="py-1.5 pr-4">${n(p.cost_basis_usd).toFixed(2)}</td>
                   <td className={`py-1.5 pr-4 font-semibold ${pnlColor}`}>
                     {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
                   </td>

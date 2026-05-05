@@ -7,7 +7,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { DailyPnL } from "../lib/api";
+import { n, type DailyPnL } from "../lib/api";
 
 type Props = { data: DailyPnL[] };
 
@@ -17,7 +17,7 @@ export function PnLChart({ data }: Props) {
   // Cumulative realized P&L
   let cum = 0;
   const chartData = sorted.map((d) => {
-    cum += d.realized_pnl;
+    cum += n(d.realized_pnl);
     return {
       date: d.date.slice(5),   // MM-DD
       realized: d.realized_pnl,
@@ -39,7 +39,7 @@ export function PnLChart({ data }: Props) {
         <YAxis stroke="#6b7280" tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} />
         <Tooltip
           contentStyle={{ background: "#111827", border: "1px solid #374151" }}
-          formatter={(v: number) => [`$${v.toFixed(2)}`, "Cumulative P&L"]}
+          formatter={(v: number) => [`$${n(v).toFixed(2)}`, "Cumulative P&L"]}
         />
         <Area
           type="monotone"

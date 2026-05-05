@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
-import { api, type Market } from "../lib/api";
+import { api, n, type Market } from "../lib/api";
 
 export function Markets() {
   const [markets, setMarkets] = useState<Market[]>([]);
@@ -83,8 +83,8 @@ export function Markets() {
             <tbody>
               {filtered.map((m) => {
                 const yesMid = m.yes_bid != null && m.yes_ask != null
-                  ? ((Number(m.yes_bid) + Number(m.yes_ask)) / 2)
-                  : m.last_price != null ? Number(m.last_price) : null;
+                  ? ((n(m.yes_bid) + n(m.yes_ask)) / 2)
+                  : m.last_price != null ? n(m.last_price) : null;
                 const closesIn = m.close_time ? daysUntil(m.close_time) : null;
                 return (
                   <tr key={m.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
@@ -105,7 +105,7 @@ export function Markets() {
                       ) : "—"}
                     </td>
                     <td className="py-1.5 pr-3 text-right text-gray-300 font-mono text-xs">
-                      {m.volume_24h_usd != null ? `$${fmtK(Number(m.volume_24h_usd))}` : "—"}
+                      {m.volume_24h_usd != null ? `$${fmtK(n(m.volume_24h_usd))}` : "—"}
                     </td>
                     <td className="py-1.5 text-right text-xs text-gray-500">
                       {closesIn != null ? (closesIn < 1 ? "<1d" : `${closesIn}d`) : "—"}

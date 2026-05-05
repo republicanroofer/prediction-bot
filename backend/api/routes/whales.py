@@ -29,7 +29,8 @@ async def list_whale_scores(
         where = f"WHERE {' AND '.join(conditions)}"
         params.append(limit)
         rows = await conn.fetch(
-            f"SELECT * FROM whale_scores {where} ORDER BY composite_score DESC LIMIT ${len(params)}",
+            f"SELECT *, COALESCE(last_trade_at, scored_at) AS last_trade_at"
+            f" FROM whale_scores {where} ORDER BY composite_score DESC LIMIT ${len(params)}",
             *params,
         )
     return [WhaleScore.model_validate(dict(r)) for r in rows]

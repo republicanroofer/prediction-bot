@@ -242,6 +242,9 @@ export const api = {
   activity: (hours = 24, limit = 100) => fetchJSON<ActivityEvent[]>(`/activity/?hours=${hours}&limit=${limit}`),
   exposure: () => fetchJSON<CategoryExposure[]>("/analytics/exposure"),
   arbitrage: () => fetchJSON<ArbitrageOpp[]>("/analytics/arbitrage"),
+  signalFirings: () => fetchJSON<EvalDecision[]>(
+    `/analytics/decisions/live?limit=200&decision=accepted`
+  ),
   positionsByCategory: (category: string) =>
     fetchJSON<CategoryPosition[]>(`/analytics/positions-by-category?category=${encodeURIComponent(category)}`),
   funnel: (hours = 24) => fetchJSON<FunnelMetrics>(`/analytics/funnel?hours=${hours}`),

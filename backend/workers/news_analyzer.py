@@ -289,10 +289,18 @@ def _score_gdelt_article(
     if relevance < MIN_RELEVANCE:
         return None
 
-    # GDELT provides a 'tone' field: positive = bullish, negative = bearish
+    # GDELT provides a 'tone' field, but artlist mode often omits it.
+    # Fall back to word-based sentiment when tone is missing/zero.
     gdelt_tone = float(article.get("tone", 0) or 0)
-    # GDELT tone range is roughly -100 to 100; normalise to -1 to 1
-    sentiment = max(-1.0, min(1.0, gdelt_tone / 25.0))
+    if abs(gdelt_tone) > 0.5:
+        sentiment = max(-1.0, min(1.0, gdelt_tone / 25.0))
+    else:
+        sentiment = _sentiment_score(text)
+
+    # Skip headlines with zero sentiment — game recaps and schedule
+    # articles with no directional words add noise without signal.
+    if sentiment == 0.0:
+        return None
     direction = _determine_direction(sentiment)
 
     return NewsSignalInsert(

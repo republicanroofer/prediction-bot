@@ -1,20 +1,40 @@
 import { useEffect, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
-import { api, n, type NewsSignal, type WhaleTrade } from "../lib/api";
+import { api, n, type NewsSignal, type WhaleTrade, type EvalDecision } from "../lib/api";
+
+type TabId = "news" | "whale" | "order_book" | "late_money" | "social" | "historical" | "arbitrage";
+
+const TAB_LABELS: Record<TabId, string> = {
+  news: "News",
+  whale: "Whale Mirror",
+  order_book: "Order Book",
+  late_money: "Late Money",
+  social: "Social Sentiment",
+  historical: "Hist. Pattern",
+  arbitrage: "Arbitrage",
+};
 
 export function Signals() {
-  const [tab, setTab] = useState<"news" | "whale">("news");
+  const [tab, setTab] = useState<TabId>("news");
   const [news, setNews] = useState<NewsSignal[]>([]);
   const [whale, setWhale] = useState<WhaleTrade[]>([]);
+  const [firings, setFirings] = useState<EvalDecision[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      setLoading(true);
       try {
-        const [n, w] = await Promise.all([api.newsSignals(24, 50), api.whaleSignals(24, 50)]);
-        if (!cancelled) { setNews(n); setWhale(w); }
+        const [ns, wh, fi] = await Promise.all([
+          api.newsSignals(24, 50),
+          api.whaleSignals(24, 50),
+          api.signalFirings(),
+        ]);
+        if (!cancelled) {
+          setNews(ns);
+          setWhale(wh);
+          setFirings(fi);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -24,31 +44,120 @@ export function Signals() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
+  const bySig = (type: string) => firings.filter((f) => f.signal_type === type);
+  const counts: Record<TabId, number> = {
+    news: news.length,
+    whale: whale.length,
+    order_book: bySig("order_book").length,
+    late_money: bySig("late_money").length,
+    social: bySig("social_sentiment").length,
+    historical: bySig("historical_pattern").length,
+    arbitrage: bySig("arbitrage").length,
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
-        {(["news", "whale"] as const).map((t) => (
+      <div className="flex gap-2 flex-wrap">
+        {(Object.keys(TAB_LABELS) as TabId[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-1.5 text-sm rounded-full border transition-colors ${
+            className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
               tab === t
                 ? "border-brand-500 text-brand-500 bg-brand-500/10"
                 : "border-gray-700 text-gray-400 hover:border-gray-500"
             }`}
           >
-            {t === "news" ? `News (${news.length})` : `Whale Mirror Queue (${whale.length})`}
+            {TAB_LABELS[t]} ({counts[t]})
           </button>
         ))}
       </div>
 
       {loading ? (
-        <EmptyState message="Loading signals…" />
+        <EmptyState message="Loading signals..." />
       ) : tab === "news" ? (
         <NewsPanel signals={news} />
-      ) : (
+      ) : tab === "whale" ? (
         <WhaleSignalPanel trades={whale} />
+      ) : (
+        <FiringsPanel
+          decisions={
+            tab === "order_book" ? bySig("order_book")
+            : tab === "late_money" ? bySig("late_money")
+            : tab === "social" ? bySig("social_sentiment")
+            : tab === "historical" ? bySig("historical_pattern")
+            : bySig("arbitrage")
+          }
+          label={TAB_LABELS[tab]}
+        />
       )}
+    </div>
+  );
+}
+
+function FiringsPanel({ decisions, label }: { decisions: EvalDecision[]; label: string }) {
+  if (decisions.length === 0) {
+    return <EmptyState message={`No ${label} signals fired in the last 24h`} />;
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-gray-400 border-b border-gray-800 text-left text-xs">
+            <th className="pb-2 pr-3">Time</th>
+            <th className="pb-2 pr-3">Exchange</th>
+            <th className="pb-2 pr-3">Market</th>
+            <th className="pb-2 pr-3">Side</th>
+            <th className="pb-2 pr-3 text-right">Price</th>
+            <th className="pb-2 pr-3 text-right">Edge</th>
+            <th className="pb-2 pr-3 text-right">Size</th>
+            <th className="pb-2">Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {decisions.map((d) => {
+            const edge = n(d.edge);
+            const edgeColor = edge > 0.1 ? "text-green-400" : edge > 0 ? "text-yellow-400" : "text-gray-500";
+            return (
+              <tr key={d.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+                <td className="py-1.5 pr-3 text-gray-500 text-xs font-mono">
+                  {new Date(d.created_at).toLocaleTimeString()}
+                </td>
+                <td className="py-1.5 pr-3">
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-semibold ${
+                    d.exchange === "kalshi" ? "bg-blue-900/50 text-blue-300" : "bg-purple-900/50 text-purple-300"
+                  }`}>
+                    {d.exchange === "kalshi" ? "K" : "P"}
+                  </span>
+                </td>
+                <td className="py-1.5 pr-3 text-gray-300 max-w-[200px] truncate" title={d.market_title ?? ""}>
+                  {d.market_title ?? "—"}
+                </td>
+                <td className="py-1.5 pr-3">
+                  {d.side ? (
+                    <span className={d.side === "yes" ? "text-green-400" : "text-red-400"}>
+                      {d.side.toUpperCase()}
+                    </span>
+                  ) : "—"}
+                </td>
+                <td className="py-1.5 pr-3 text-right font-mono text-gray-400">
+                  {d.entry_price != null ? `${(n(d.entry_price) * 100).toFixed(0)}¢` : "—"}
+                </td>
+                <td className={`py-1.5 pr-3 text-right font-mono font-semibold ${edgeColor}`}>
+                  {d.edge != null ? `+${(edge * 100).toFixed(1)}%` : "—"}
+                </td>
+                <td className="py-1.5 pr-3 text-right font-mono text-gray-400">
+                  {d.kelly_size_usd != null ? `$${n(d.kelly_size_usd).toFixed(0)}` : "—"}
+                </td>
+                <td className="py-1.5 text-gray-500 text-xs max-w-[200px] truncate" title={d.reason}>
+                  {d.reason}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -125,7 +234,7 @@ function WhaleSignalPanel({ trades }: { trades: WhaleTrade[] }) {
           {trades.map((t) => (
             <tr key={t.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
               <td className="py-1.5 pr-4 text-gray-500 text-xs">{fmtDate(t.mirror_queued_at ?? t.block_timestamp)}</td>
-              <td className="py-1.5 pr-4 font-mono text-xs text-gray-300">{t.maker_address.slice(0, 8)}…</td>
+              <td className="py-1.5 pr-4 font-mono text-xs text-gray-300">{t.maker_address.slice(0, 8)}...</td>
               <td className="py-1.5 pr-4 text-gray-300 max-w-[200px] truncate">{t.market_title ?? "—"}</td>
               <td className="py-1.5 pr-4">
                 <span className={t.maker_direction === "buy" ? "text-green-400" : "text-red-400"}>
@@ -136,7 +245,7 @@ function WhaleSignalPanel({ trades }: { trades: WhaleTrade[] }) {
               <td className="py-1.5 pr-4 font-mono">{n(t.price).toFixed(3)}</td>
               <td className="py-1.5">
                 {t.whale_score != null ? (
-                  <ScorePill score={Number(t.whale_score)} />
+                  <ScorePill score={n(t.whale_score)} />
                 ) : "—"}
               </td>
             </tr>

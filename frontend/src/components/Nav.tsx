@@ -5,11 +5,12 @@ type Tab = {
 
 const TABS: Tab[] = [
   { id: "overview",  label: "Overview"  },
-  { id: "decisions", label: "Decisions" },
   { id: "signals",   label: "Signals"   },
   { id: "markets",   label: "Markets"   },
   { id: "whales",    label: "Whales"    },
   { id: "activity",  label: "Activity"  },
+  { id: "decisions", label: "Decisions" },
+  { id: "alerts",    label: "Alerts"    },
 ];
 
 type Props = {

@@ -217,6 +217,18 @@ export type Opportunity = {
   days_to_close?: number;
 };
 
+export type ArbitrageOpp = {
+  title: string;
+  category?: string;
+  kalshi_mid: number;
+  poly_mid: number;
+  gap_pct: number;
+  cheap_exchange: string;
+  kalshi_vol: number;
+  poly_vol: number;
+  close_time?: string;
+};
+
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
 
 export const api = {
@@ -229,6 +241,7 @@ export const api = {
   whaleSignals: (hours = 24, limit = 50) => fetchJSON<WhaleTrade[]>(`/signals/whale?hours=${hours}&limit=${limit}`),
   activity: (hours = 24, limit = 100) => fetchJSON<ActivityEvent[]>(`/activity/?hours=${hours}&limit=${limit}`),
   exposure: () => fetchJSON<CategoryExposure[]>("/analytics/exposure"),
+  arbitrage: () => fetchJSON<ArbitrageOpp[]>("/analytics/arbitrage"),
   positionsByCategory: (category: string) =>
     fetchJSON<CategoryPosition[]>(`/analytics/positions-by-category?category=${encodeURIComponent(category)}`),
   funnel: (hours = 24) => fetchJSON<FunnelMetrics>(`/analytics/funnel?hours=${hours}`),

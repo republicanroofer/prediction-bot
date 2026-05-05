@@ -173,6 +173,40 @@ class Database:
                 )
             return [Market.model_validate(dict(r)) for r in rows]
 
+    async def get_cross_exchange_pairs(
+        self, min_gap: float = 0.05, min_volume: float = 1000.0,
+    ) -> list[dict]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT k.id AS kalshi_id, p.id AS poly_id,
+                       k.title, k.category,
+                       k.yes_bid AS kb, k.yes_ask AS ka,
+                       p.yes_bid AS pb, p.yes_ask AS pa,
+                       k.volume_24h_usd AS k_vol, p.volume_24h_usd AS p_vol,
+                       k.close_time, k.external_id AS k_ext, p.external_id AS p_ext
+                FROM markets k
+                JOIN markets p ON LOWER(k.title) = LOWER(p.title)
+                WHERE k.exchange::text = 'kalshi' AND p.exchange::text = 'polymarket'
+                  AND k.is_active AND p.is_active
+                  AND NOT k.is_resolved AND NOT p.is_resolved
+                  AND COALESCE(k.volume_24h_usd, 0) >= $1
+                  AND COALESCE(p.volume_24h_usd, 0) >= $1
+                  AND ABS(
+                      (COALESCE(k.yes_bid,0)+COALESCE(k.yes_ask,0))/2
+                    - (COALESCE(p.yes_bid,0)+COALESCE(p.yes_ask,0))/2
+                  ) >= $2
+                ORDER BY ABS(
+                    (COALESCE(k.yes_bid,0)+COALESCE(k.yes_ask,0))/2
+                  - (COALESCE(p.yes_bid,0)+COALESCE(p.yes_ask,0))/2
+                ) DESC
+                LIMIT 50
+                """,
+                min_volume,
+                min_gap,
+            )
+            return [dict(r) for r in rows]
+
     async def get_market_by_condition(self, condition_id: str) -> Optional[Market]:
         """Look up Polymarket market by condition_id (= external_id)."""
         async with self._pool.acquire() as conn:

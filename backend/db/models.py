@@ -49,6 +49,11 @@ class SignalType(str, Enum):
     NEWS = "news"
     LLM_DIRECTIONAL = "llm_directional"
     SAFE_COMPOUNDER = "safe_compounder"
+    ARBITRAGE = "arbitrage"
+    ORDER_BOOK = "order_book"
+    LATE_MONEY = "late_money"
+    HISTORICAL_PATTERN = "historical_pattern"
+    SOCIAL_SENTIMENT = "social_sentiment"
     MANUAL = "manual"
 
 

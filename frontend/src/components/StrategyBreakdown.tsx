@@ -7,6 +7,11 @@ const STRATEGY_COLORS: Record<string, string> = {
   whale_mirror: "bg-purple-500",
   llm_directional: "bg-cyan-500",
   safe_compounder: "bg-green-500",
+  arbitrage: "bg-yellow-500",
+  order_book: "bg-orange-500",
+  late_money: "bg-red-500",
+  historical_pattern: "bg-teal-500",
+  social_sentiment: "bg-pink-500",
   manual: "bg-gray-500",
 };
 

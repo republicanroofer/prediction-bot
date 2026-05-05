@@ -120,6 +120,8 @@ class ScannerWorker:
 
         # After upserts, evaluate signals on all active markets
         await self._evaluate_all_markets()
+        # Cross-exchange arbitrage (runs after market eval so it can use position cap)
+        await self._scan_arbitrage()
 
     # ── Kalshi ingestion ──────────────────────────────────────────────────────
 
@@ -518,6 +520,117 @@ class ScannerWorker:
                 news_hint = best.headline
 
         return await self._llm_evaluate_market(market, news_hint=news_hint)
+
+    # ── Cross-market arbitrage ────────────────────────────────────────────────
+
+    async def _scan_arbitrage(self) -> None:
+        """Find markets listed on both exchanges with a >5% price gap."""
+        pairs = await self._db.get_cross_exchange_pairs(
+            min_gap=0.05, min_volume=self._cfg.min_market_volume_usd,
+        )
+        for pair in pairs:
+            if self._new_positions_this_scan >= _MAX_NEW_POSITIONS_PER_SCAN:
+                break
+
+            k_mid = (float(pair["kb"] or 0) + float(pair["ka"] or 0)) / 2
+            p_mid = (float(pair["pb"] or 0) + float(pair["pa"] or 0)) / 2
+            gap = abs(k_mid - p_mid)
+
+            if k_mid < p_mid:
+                cheap_id, cheap_exchange, cheap_price = pair["kalshi_id"], Exchange.KALSHI, k_mid
+            else:
+                cheap_id, cheap_exchange, cheap_price = pair["poly_id"], Exchange.POLYMARKET, p_mid
+
+            existing = await self._db.get_positions_for_market(cheap_id)
+            if existing:
+                continue
+
+            market = await self._db.get_market(cheap_id)
+            if not market:
+                continue
+
+            confidence = min(0.85, 0.5 + gap * 2)
+            side = "yes" if cheap_price < 0.5 else "no"
+            entry_price = market.yes_mid if side == "yes" else market.no_mid
+            if entry_price is None or not (0.05 <= entry_price <= 0.95):
+                continue
+
+            signal_meta = {
+                "gap_pct": round(gap * 100, 2),
+                "kalshi_mid": round(k_mid, 4),
+                "poly_mid": round(p_mid, 4),
+                "cheap_exchange": cheap_exchange.value,
+            }
+
+            logger.info(
+                "ARB [%s] %s | gap=%.1f%% K=%.2f P=%.2f → buy %s at %.2f",
+                cheap_exchange.value, pair["title"][:40],
+                gap * 100, k_mid, p_mid,
+                side, entry_price,
+            )
+
+            mkt_base = {
+                "market_id": market.id,
+                "external_market_id": market.external_id,
+                "market_title": market.title[:120],
+                "exchange": market.exchange.value,
+                "signal_type": SignalType.ARBITRAGE.value,
+                "side": side,
+                "confidence": round(confidence, 4),
+                "entry_price": round(entry_price, 6),
+                "edge": round(confidence - entry_price, 6),
+            }
+
+            edge = confidence - entry_price
+            if edge <= 0:
+                await self._log_decision(mkt_base, "rejected", f"arb edge too low: {edge*100:.1f}%")
+                continue
+
+            portfolio_value = await self._estimate_portfolio_value()
+            if portfolio_value <= 0:
+                continue
+
+            cat_score = await self._db.get_category_score(
+                market.exchange, market.category or "unknown"
+            )
+
+            size_usd = self._kelly_size(
+                confidence=confidence,
+                entry_price=entry_price,
+                portfolio_usd=portfolio_value,
+                cat_score=cat_score,
+            )
+            mkt_base["kelly_size_usd"] = round(size_usd, 2)
+
+            if size_usd < 1.0:
+                await self._log_decision(mkt_base, "rejected", f"arb kelly too small: ${size_usd:.2f}")
+                continue
+
+            contracts = size_usd / entry_price
+
+            block = await self._portfolio_enforcer_check(
+                market=market, side=side, contracts=contracts,
+                entry_price=entry_price, size_usd=size_usd,
+                signal_type=SignalType.ARBITRAGE,
+                portfolio_usd=portfolio_value, cat_score=cat_score,
+            )
+            if block:
+                gate, reason = block
+                await self._log_decision(mkt_base, "rejected", f"risk gate [{gate}]: {reason}")
+                continue
+
+            accept_reason = (
+                f"signal fired: arbitrage gap {gap*100:.1f}% | "
+                f"edge {edge*100:.1f}% | kelly ${size_usd:.2f}"
+            )
+            await self._log_decision(mkt_base, "accepted", accept_reason)
+
+            await self._open_position(
+                market=market, side=side, contracts=contracts,
+                entry_price=entry_price, size_usd=size_usd,
+                signal_type=SignalType.ARBITRAGE,
+                confidence=confidence, whale_meta=signal_meta,
+            )
 
     async def _llm_evaluate_market(
         self,

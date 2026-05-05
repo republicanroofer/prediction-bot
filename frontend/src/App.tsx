@@ -7,6 +7,7 @@ import { Decisions } from "./pages/Decisions";
 import { Markets } from "./pages/Markets";
 import { Overview } from "./pages/Overview";
 import { Signals } from "./pages/Signals";
+import { Arbitrage } from "./pages/Arbitrage";
 import { TelegramSetup } from "./pages/TelegramSetup";
 import { Whales } from "./pages/Whales";
 import { api, n, type BotStatus, type DailyPnL } from "./lib/api";
@@ -54,6 +55,7 @@ export default function App() {
         {tab === "markets"   && <Markets />}
         {tab === "whales"    && <Whales />}
         {tab === "activity"  && <Activity />}
+        {tab === "arbitrage" && <Arbitrage />}
         {tab === "alerts"    && <TelegramSetup />}
       </main>
     </div>

@@ -275,3 +275,28 @@ async def positions_by_category(
             category,
         )
     return [dict(r) for r in rows]
+
+
+@router.get("/arbitrage")
+async def arbitrage_opportunities(
+    db: Database = Depends(get_db),
+) -> list[dict]:
+    pairs = await db.get_cross_exchange_pairs(min_gap=0.03, min_volume=500.0)
+    result = []
+    for p in pairs:
+        k_mid = (float(p["kb"] or 0) + float(p["ka"] or 0)) / 2
+        p_mid = (float(p["pb"] or 0) + float(p["pa"] or 0)) / 2
+        gap = abs(k_mid - p_mid)
+        cheap = "kalshi" if k_mid < p_mid else "polymarket"
+        result.append({
+            "title": p["title"],
+            "category": p["category"],
+            "kalshi_mid": round(k_mid, 4),
+            "poly_mid": round(p_mid, 4),
+            "gap_pct": round(gap * 100, 2),
+            "cheap_exchange": cheap,
+            "kalshi_vol": float(p["k_vol"] or 0),
+            "poly_vol": float(p["p_vol"] or 0),
+            "close_time": str(p["close_time"]) if p["close_time"] else None,
+        })
+    return result

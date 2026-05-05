@@ -266,10 +266,10 @@ class ScannerWorker:
             "exchange": market.exchange.value,
         }
 
-        # ── Basic filters ─────────────────────────────────────────────────────
-        reject_reason = self._check_basic_filters(market)
-        if reject_reason:
-            await self._log_decision(mkt_base, "rejected", reject_reason)
+        # ── Volume filter (always required) ───────────────────────────────────
+        vol = float(market.volume_24h_usd or 0)
+        if vol < cfg.min_market_volume_usd:
+            await self._log_decision(mkt_base, "rejected", f"volume too low: ${vol:.0f} < ${cfg.min_market_volume_usd:.0f}")
             return
 
         # ── Existing position check ───────────────────────────────────────────
@@ -277,6 +277,27 @@ class ScannerWorker:
         if existing:
             await self._log_decision(mkt_base, "rejected", "already positioned")
             return
+
+        # ── Whale mirror signal (checked before expiry filter — short-dated OK) ─
+        whale_signal = await self._detect_whale_signal(market)
+
+        # ── Expiry filters (relaxed for whale signals) ────────────────────────
+        days = market.days_to_close
+        if whale_signal is None:
+            if days is None:
+                await self._log_decision(mkt_base, "rejected", "no close date")
+                return
+            if days < cfg.min_days_to_expiry:
+                await self._log_decision(mkt_base, "rejected", f"expires too soon: {days:.1f}d < {cfg.min_days_to_expiry}d")
+                return
+            if days > cfg.max_days_to_expiry:
+                await self._log_decision(mkt_base, "rejected", f"expires too far: {days:.0f}d > {cfg.max_days_to_expiry}d")
+                return
+        else:
+            # Whale signal: only reject if market already closed
+            if days is not None and days <= 0:
+                await self._log_decision(mkt_base, "rejected", f"market already closed (whale signal)")
+                return
 
         # ── Category score gate ───────────────────────────────────────────────
         cat_score = await self._db.get_category_score(
@@ -289,8 +310,8 @@ class ScannerWorker:
             )
             return
 
-        # ── Signal detection ──────────────────────────────────────────────────
-        signal = await self._detect_signal(market)
+        # ── Signal detection (use whale signal if found, else check others) ───
+        signal = whale_signal or await self._detect_other_signals(market)
         if signal is None:
             await self._log_decision(mkt_base, "rejected", "no signal")
             return
@@ -412,54 +433,40 @@ class ScannerWorker:
         except Exception:
             logger.debug("Failed to log evaluation decision", exc_info=True)
 
-    def _check_basic_filters(self, market: Market) -> Optional[str]:
-        """Return rejection reason string, or None if passed."""
-        cfg = self._cfg
-        vol = float(market.volume_24h_usd or 0)
-        if vol < cfg.min_market_volume_usd:
-            return f"volume too low: ${vol:.0f} < ${cfg.min_market_volume_usd:.0f}"
-        days = market.days_to_close
-        if days is None:
-            return "no close date"
-        if days < cfg.min_days_to_expiry:
-            return f"expires too soon: {days:.1f}d < {cfg.min_days_to_expiry}d"
-        if days > cfg.max_days_to_expiry:
-            return f"expires too far: {days:.0f}d > {cfg.max_days_to_expiry}d"
-        return None
 
-    async def _detect_signal(
+    async def _detect_whale_signal(
         self, market: Market
     ) -> Optional[tuple[SignalType, str, float, dict]]:
-        """
-        Check pre-computed signals stored by other workers.
-        Returns (signal_type, side, confidence, meta) or None.
-        Priority: whale_mirror > news.
-        """
-        # ── Whale mirror signal ───────────────────────────────────────────────
-        # Check if a queued mirror trade exists for this market
-        if market.exchange == Exchange.POLYMARKET:
-            queued = await self._db.get_queued_mirror_trades(
-                min_delay_s=self._cfg.whale_mirror_delay_s,
-                min_score=self._cfg.whale_min_score,
-            )
-            for trade in queued:
-                if (
-                    trade.get("condition_id") == market.external_id
-                    or trade.get("market_id") == market.id
-                ):
-                    side = trade["maker_direction"]  # 'buy' → buy YES
-                    return (
-                        SignalType.WHALE_MIRROR,
-                        "yes" if side == "buy" else "no",
-                        min(0.75, 0.5 + float(trade.get("composite_score", 60)) / 200),
-                        {
-                            "whale_address": trade["maker_address"],
-                            "whale_score": float(trade.get("composite_score", 0)),
-                            "whale_trade_id": trade["id"],
-                            "usd_amount": float(trade["usd_amount"]),
-                        },
-                    )
+        """Check for queued whale mirror trades matching this market."""
+        if market.exchange != Exchange.POLYMARKET:
+            return None
+        queued = await self._db.get_queued_mirror_trades(
+            min_delay_s=self._cfg.whale_mirror_delay_s,
+            min_score=self._cfg.whale_min_score,
+        )
+        for trade in queued:
+            if (
+                trade.get("condition_id") == market.external_id
+                or trade.get("market_id") == market.id
+            ):
+                side = trade["maker_direction"]
+                return (
+                    SignalType.WHALE_MIRROR,
+                    "yes" if side == "buy" else "no",
+                    min(0.75, 0.5 + float(trade.get("composite_score", 60)) / 200),
+                    {
+                        "whale_address": trade["maker_address"],
+                        "whale_score": float(trade.get("composite_score", 0)),
+                        "whale_trade_id": trade["id"],
+                        "usd_amount": float(trade["usd_amount"]),
+                    },
+                )
+        return None
 
+    async def _detect_other_signals(
+        self, market: Market
+    ) -> Optional[tuple[SignalType, str, float, dict]]:
+        """Check news and volume-momentum signals."""
         # ── News signal ───────────────────────────────────────────────────────
         recent_signals = await self._db.get_recent_signals_for_market(
             market.id, hours=_NEWS_SIGNAL_RECENCY_HOURS

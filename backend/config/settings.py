@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     # ── Whale mirroring ─────────────────────────────────────────────────────
     whale_mirror_delay_s: int = 45         # seconds to wait before mirroring
     whale_min_trade_usd: float = 500.0     # only mirror trades above this size
-    whale_min_score: float = 35.0          # minimum composite score to follow
+    whale_min_score: float = 20.0          # minimum composite score to follow
     whale_score_interval_s: int = 3600     # re-rank every hour
 
     # ── Market scanning ─────────────────────────────────────────────────────

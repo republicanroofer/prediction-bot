@@ -23,7 +23,7 @@ up on the next failed send.
 import asyncio
 import json
 import logging
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -66,10 +66,12 @@ async def _build_snapshot(db: Database) -> dict:
         ord_rows = await conn.fetch(
             "SELECT * FROM orders WHERE status IN ('pending', 'open') ORDER BY created_at DESC LIMIT 50"
         )
-        today = date.today()
         pnl_row = await conn.fetchrow(
-            "SELECT SUM(realized_pnl) AS r, SUM(unrealized_pnl) AS u FROM daily_pnl WHERE date = $1",
-            today,
+            """
+            SELECT
+                (SELECT COALESCE(SUM(realized_pnl), 0) FROM positions WHERE status = 'closed') AS r,
+                (SELECT COALESCE(SUM(unrealized_pnl), 0) FROM positions WHERE status IN ('open', 'pending_close')) AS u
+            """
         )
 
     return {

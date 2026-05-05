@@ -61,7 +61,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 async def _build_snapshot(db: Database) -> dict:
     async with db._pool.acquire() as conn:
         pos_rows = await conn.fetch(
-            "SELECT * FROM positions WHERE status IN ('open', 'pending_close') ORDER BY opened_at DESC LIMIT 50"
+            "SELECT * FROM positions WHERE status IN ('open', 'pending_close') ORDER BY opened_at DESC"
         )
         ord_rows = await conn.fetch(
             "SELECT * FROM orders WHERE status IN ('pending', 'open') ORDER BY created_at DESC LIMIT 50"

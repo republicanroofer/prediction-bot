@@ -294,6 +294,16 @@ class PositionTrackerWorker:
             )
             return
 
+        # Market expired (close_time passed) — close at current price
+        if market and market.close_time:
+            ct = market.close_time if market.close_time.tzinfo else market.close_time.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > ct:
+                logger.info(
+                    "Market expired: %s (closed %s)", pos.external_market_id, market.close_time
+                )
+                await self._close_position(pos, current_price, CloseReason.EXPIRY)
+                return
+
         # Time limit
         if updated_pos.is_past_time_limit():
             await self._close_position(pos, current_price, CloseReason.TIME_LIMIT)
@@ -323,6 +333,9 @@ class PositionTrackerWorker:
 
     async def _fetch_current_price(self, pos: Position) -> Optional[float]:
         try:
+            # Paper mode: use market mid-price from DB (updated by scanner every 60s)
+            if pos.mode == TradingMode.PAPER:
+                return await self._paper_price(pos)
             if pos.exchange == Exchange.KALSHI:
                 return await self._kalshi_price(pos)
             else:
@@ -333,10 +346,21 @@ class PositionTrackerWorker:
             )
             return None
 
+    async def _paper_price(self, pos: Position) -> Optional[float]:
+        market = await self._db.get_market(pos.market_id)
+        if not market:
+            return float(pos.current_price or pos.avg_entry_price)
+        if pos.side in ("yes", "buy"):
+            mid = market.yes_mid
+        else:
+            mid = market.no_mid
+        if mid is not None:
+            return mid
+        return float(pos.current_price or pos.avg_entry_price)
+
     async def _kalshi_price(self, pos: Position) -> Optional[float]:
         if not self._kalshi:
-            # Paper fallback: use stored current_price or entry price
-            return float(pos.current_price or pos.avg_entry_price)
+            return await self._paper_price(pos)
 
         book = await self._kalshi.get_orderbook(pos.external_market_id, depth=1)
         ob = book.get("orderbook", {})
@@ -355,11 +379,11 @@ class PositionTrackerWorker:
             return (best_bid + best_ask) / 2
         if best_bid:
             return best_bid
-        return float(pos.current_price or pos.avg_entry_price)
+        return await self._paper_price(pos)
 
     async def _poly_price(self, pos: Position) -> Optional[float]:
         if not self._clob:
-            return float(pos.current_price or pos.avg_entry_price)
+            return await self._paper_price(pos)
 
         market = await self._db.get_market(pos.market_id)
         if not market:

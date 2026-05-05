@@ -45,6 +45,8 @@ logger = logging.getLogger(__name__)
 _BLOCK_THRESHOLD = 30.0
 # Seconds of news signal recency required to count as "actionable"
 _NEWS_SIGNAL_RECENCY_HOURS = 24
+# Hard cap on new positions opened in a single scan tick (prevents mass-entry bursts)
+_MAX_NEW_POSITIONS_PER_SCAN = 3
 
 
 class ScannerWorker:
@@ -65,6 +67,8 @@ class ScannerWorker:
         self._gamma = gamma
         self._stop = stop_event or asyncio.Event()
         self._cfg = get_settings()
+        self._new_positions_this_scan: int = 0
+        self._scan_exposure_usd: float = 0.0
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -252,8 +256,16 @@ class ScannerWorker:
     async def _evaluate_all_markets(self) -> None:
         markets = await self._db.get_active_markets()
         cfg = self._cfg
+        self._new_positions_this_scan = 0
+        self._scan_exposure_usd = 0.0
 
         for market in markets:
+            if self._new_positions_this_scan >= _MAX_NEW_POSITIONS_PER_SCAN:
+                logger.info(
+                    "Scan cap reached (%d new positions) — skipping remaining markets",
+                    _MAX_NEW_POSITIONS_PER_SCAN,
+                )
+                break
             try:
                 await self._evaluate_market(market)
             except Exception:
@@ -491,25 +503,27 @@ class ScannerWorker:
                 )
 
         # ── Volume-momentum signal ───────────────────────────────────────────
-        # Markets with unusually high 24h volume relative to total lifetime
-        # volume suggest active price discovery — trade toward the mid-price
-        # direction (yes if mid > 0.5, no if mid < 0.5).
+        # Only fire on markets with very strong volume surge (24h >= 15% of lifetime),
+        # high absolute volume, and a meaningful price skew away from 50/50.
         vol_24h = float(market.volume_24h_usd or 0)
         vol_total = float(market.volume_total_usd or 0)
         days = market.days_to_close or 30
-        if vol_24h >= 5000 and vol_total > 0:
+        cfg = self._cfg
+        if vol_24h >= 10000 and vol_total > 0:
             vol_ratio = vol_24h / vol_total
-            if vol_ratio >= 0.03:  # 24h vol is >= 3% of all-time
+            if vol_ratio >= 0.15:  # 24h vol is >= 15% of all-time (strong surge)
                 mid = market.yes_mid
-                if mid is not None and 0.15 <= mid <= 0.85:
+                # Require meaningful price skew (>60% or <40%) for a directional bet
+                if mid is not None and (mid >= 0.60 or mid <= 0.40) and 0.15 <= mid <= 0.85:
                     side = "yes" if mid >= 0.5 else "no"
-                    confidence = min(0.58, 0.40 + vol_ratio * 2.0 + (0.01 if days <= 14 else 0))
-                    return (
-                        SignalType.LLM_DIRECTIONAL,
-                        side,
-                        confidence,
-                        {"volume_ratio": round(vol_ratio, 4), "vol_24h": vol_24h},
-                    )
+                    confidence = min(0.65, 0.45 + vol_ratio * 1.0 + (0.02 if days <= 14 else 0))
+                    if confidence >= cfg.min_confidence:
+                        return (
+                            SignalType.LLM_DIRECTIONAL,
+                            side,
+                            confidence,
+                            {"volume_ratio": round(vol_ratio, 4), "vol_24h": vol_24h},
+                        )
 
         return None
 
@@ -668,6 +682,9 @@ class ScannerWorker:
                 whale_meta["whale_trade_id"], pos_id
             )
 
+        self._new_positions_this_scan += 1
+        self._scan_exposure_usd += size_usd
+
         logger.info(
             "[%s][%s] %s %s %.0f contracts @ %.3f (%.2f USD) signal=%s conf=%.0f%%",
             mode.value.upper(),
@@ -696,11 +713,13 @@ class ScannerWorker:
     async def _estimate_portfolio_value(self) -> float:
         """
         In paper mode, use a synthetic $10,000 starting balance minus open exposure.
+        Adds _scan_exposure_usd to account for positions opened earlier in this scan
+        that haven't committed to the DB yet.
         In live mode, query exchange balances (TODO: wire up after executors built).
         """
         if self._cfg.trading_mode == TradingMode.PAPER:
             exposure = await self._db.get_total_exposure_usd()
-            return max(0.0, self._cfg.paper_starting_balance - exposure)
+            return max(0.0, self._cfg.paper_starting_balance - exposure - self._scan_exposure_usd)
         # Live: TODO query Kalshi balance + Poly USDC balance
         return self._cfg.paper_starting_balance
 

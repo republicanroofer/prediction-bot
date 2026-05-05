@@ -70,15 +70,7 @@ class KalshiClient:
     @classmethod
     def from_settings(cls) -> "KalshiClient":
         cfg = get_settings()
-        if cfg.kalshi_private_key:
-            key_bytes = cfg.kalshi_private_key.encode()
-        elif cfg.kalshi_private_key_path.exists():
-            key_bytes = cfg.kalshi_private_key_path.read_bytes()
-        else:
-            raise FileNotFoundError(
-                f"Kalshi private key not found at {cfg.kalshi_private_key_path} "
-                f"and KALSHI_PRIVATE_KEY env var is not set"
-            )
+        key_bytes = cfg.kalshi_private_key_path.read_bytes()
         private_key: RSAPrivateKey = serialization.load_pem_private_key(  # type: ignore[assignment]
             key_bytes, password=None
         )

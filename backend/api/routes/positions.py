@@ -70,33 +70,3 @@ async def close_position(
 
     await db.set_position_closing(position_id, CloseReason.MANUAL)
     return {"status": "closing", "position_id": str(position_id)}
-
-
-@router.get("/{position_id}/history")
-async def position_history(
-    position_id: UUID,
-    db: Database = Depends(get_db),
-) -> dict:
-    async with db._pool.acquire() as conn:
-        pos = await conn.fetchrow(
-            "SELECT * FROM positions WHERE id = $1", position_id
-        )
-        if pos is None:
-            raise HTTPException(status_code=404, detail="Position not found")
-
-        orders = await conn.fetch(
-            "SELECT * FROM orders WHERE position_id = $1 ORDER BY created_at", position_id
-        )
-        fills = await conn.fetch(
-            "SELECT * FROM fills WHERE order_id = ANY(SELECT id FROM orders WHERE position_id = $1) ORDER BY filled_at",
-            position_id,
-        )
-        market = await conn.fetchrow(
-            "SELECT * FROM markets WHERE id = $1", pos["market_id"]
-        )
-    return {
-        "position": dict(pos),
-        "orders": [dict(r) for r in orders],
-        "fills": [dict(r) for r in fills],
-        "market": dict(market) if market else None,
-    }

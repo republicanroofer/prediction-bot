@@ -7,20 +7,18 @@ type Props = {
 
 export function StatusBar({ status, connected }: Props) {
   return (
-    <div className="flex flex-wrap items-center gap-3 sm:gap-6 px-3 sm:px-4 py-2 bg-gray-900 border-b border-gray-800 text-xs sm:text-sm">
-      <span className="font-bold text-brand-500 text-sm sm:text-base">Prediction Bot</span>
+    <div className="flex items-center gap-6 px-4 py-2 bg-gray-900 border-b border-gray-800 text-sm">
+      <span className="font-bold text-brand-500 text-base">Prediction Bot</span>
 
       <Dot active={connected} label={connected ? "live" : "disconnected"} />
 
       {status && (
         <>
-          <div className="flex flex-wrap gap-1 items-center">
-            <Tag label="mode" value={status.mode.toUpperCase()} colored={status.mode === "live"} />
-            <Tag label="exchange" value={status.exchange} />
-            <span className="hidden sm:inline"><Tag label="positions" value={String(status.open_positions)} /></span>
-            <span className="hidden sm:inline"><Tag label="exposure" value={`$${status.total_exposure_usd.toFixed(0)}`} /></span>
-            <span className="hidden md:inline"><Tag label="kelly" value={`${(status.kelly_fraction * 100).toFixed(0)}%`} /></span>
-          </div>
+          <Tag label="mode" value={status.mode.toUpperCase()} colored={status.mode === "live"} />
+          <Tag label="exchange" value={status.exchange} />
+          <Tag label="positions" value={String(status.open_positions)} />
+          <Tag label="exposure" value={`$${status.total_exposure_usd.toFixed(0)}`} />
+          <Tag label="kelly" value={`${(status.kelly_fraction * 100).toFixed(0)}%`} />
           <PaperBalance
             balance={status.paper_balance}
             returnPct={status.paper_return_pct}
@@ -55,7 +53,7 @@ function PaperBalance({ balance, returnPct }: { balance: number; returnPct: numb
   const sign = positive ? "+" : "";
   const color = positive ? "text-green-400" : negative ? "text-red-400" : "text-gray-200";
   return (
-    <span className="text-gray-500 border-l border-gray-700 pl-4 sm:ml-auto">
+    <span className="text-gray-500 border-l border-gray-700 pl-4 ml-2">
       paper:{" "}
       <span className="text-gray-200">${balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
       {" "}

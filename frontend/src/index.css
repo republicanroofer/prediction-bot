@@ -5,19 +5,3 @@
 body {
   @apply bg-gray-950 text-gray-100 font-mono;
 }
-
-@keyframes scroll {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
-}
-.animate-scroll {
-  animation: scroll 30s linear infinite;
-}
-
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}

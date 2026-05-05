@@ -1,13 +1,10 @@
 import { useEffect, useState } from "react";
-import { LiveTicker } from "./components/LiveTicker";
 import { Nav } from "./components/Nav";
 import { StatusBar } from "./components/StatusBar";
 import { Activity } from "./pages/Activity";
-import { Decisions } from "./pages/Decisions";
 import { Markets } from "./pages/Markets";
 import { Overview } from "./pages/Overview";
 import { Signals } from "./pages/Signals";
-import { TelegramSetup } from "./pages/TelegramSetup";
 import { Whales } from "./pages/Whales";
 import { api, type BotStatus, type DailyPnL } from "./lib/api";
 import { useWebSocket } from "./lib/useWebSocket";
@@ -31,20 +28,29 @@ export default function App() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
+  // Override position count and exposure from the live WebSocket snapshot
+  // so StatusBar and Overview cards always show the same numbers.
+  const liveStatus: typeof status = status && snapshot
+    ? {
+        ...status,
+        open_positions: snapshot.positions.length,
+        total_exposure_usd: snapshot.positions.reduce(
+          (s, p) => s + Number(p.cost_basis_usd), 0
+        ),
+      }
+    : status;
+
   return (
     <div className="min-h-screen flex flex-col">
-      <StatusBar status={status} connected={connected} />
-      <LiveTicker />
+      <StatusBar status={liveStatus} connected={connected} />
       <Nav active={tab} onChange={setTab} />
 
-      <main className="flex-1 p-3 sm:p-6 max-w-7xl mx-auto w-full">
+      <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
         {tab === "overview"  && <Overview snapshot={snapshot} pnlHistory={pnlHistory} />}
         {tab === "signals"   && <Signals />}
         {tab === "markets"   && <Markets />}
         {tab === "whales"    && <Whales />}
         {tab === "activity"  && <Activity />}
-        {tab === "decisions" && <Decisions />}
-        {tab === "telegram"  && <TelegramSetup />}
       </main>
     </div>
   );

@@ -595,16 +595,13 @@ class ScannerWorker:
                 f"Size ${size_usd:.2f} > max ${max_pos_usd:.2f} ({cfg.max_position_pct*100:.1f}% of portfolio)",
             )
 
-        # Gate 4: total sector concentration
-        total_exposure = await self._db.get_total_exposure_usd()
-        cat_exposure = await self._db.get_category_exposure_usd(
-            market.exchange, category
-        )
+        # Gate 4: category concentration (cross-exchange)
+        cat_exposure_total = await self._db.get_category_exposure_all_exchanges(category)
         max_sector_usd = portfolio_usd * cfg.max_sector_concentration_pct
-        if cat_exposure + size_usd > max_sector_usd:
+        if cat_exposure_total + size_usd > max_sector_usd:
             return (
-                "sector_concentration",
-                f"{category} sector ${cat_exposure + size_usd:.0f} > max ${max_sector_usd:.0f}",
+                "category_concentration",
+                f"{category} total ${cat_exposure_total:.0f} + ${size_usd:.0f} > {cfg.max_sector_concentration_pct*100:.0f}% cap ${max_sector_usd:.0f}",
             )
 
         return None  # all gates passed

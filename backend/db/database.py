@@ -766,6 +766,21 @@ class Database:
             )
             return float(row["total"])
 
+    async def get_category_exposure_all_exchanges(self, category: str) -> float:
+        """Sum of cost_basis_usd for all open positions in this category across ALL exchanges."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT COALESCE(SUM(p.cost_basis_usd), 0) AS total
+                FROM positions p
+                JOIN markets m ON m.id = p.market_id
+                WHERE p.status IN ('pending','open')
+                  AND m.category = $1
+                """,
+                category.lower(),
+            )
+            return float(row["total"])
+
     # ── Blocked trades ────────────────────────────────────────────────────────
 
     async def insert_blocked_trade(self, data: BlockedTradeInsert) -> None:

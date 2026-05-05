@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     # ── Position sizing ─────────────────────────────────────────────────────
     kelly_fraction: float = 0.25           # quarter-Kelly
     max_position_pct: float = 0.03         # max 3% of portfolio per position
-    max_sector_concentration_pct: float = 0.30
+    max_sector_concentration_pct: float = 0.25
     min_edge_cents: float = 3.0            # minimum edge in cents to trade
     min_confidence: float = 0.55
 

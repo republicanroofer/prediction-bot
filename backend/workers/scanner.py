@@ -667,15 +667,20 @@ class ScannerWorker:
             self._llm_cache[market.id] = (expires_at, None)
             return None
 
+        # For NO trades, confidence must represent P(NO wins) = 1 - llm_conf so
+        # the existing edge formula (confidence - entry_price) stays correct for
+        # both sides: YES edge = llm_conf - yes_mid, NO edge = (1-llm_conf) - no_mid.
+        signal_confidence = llm_conf if side == "yes" else (1.0 - llm_conf)
+
         signal_meta = {
             "reasoning": reasoning,
-            "llm_confidence": round(llm_conf, 4),
+            "llm_confidence": round(llm_conf, 4),   # raw YES probability from LLM
             "market_price": round(yes_price, 4),
             "edge": round(edge_display, 4),
             "cost_usd": round(cost_usd, 6),
             "latency_ms": latency_ms,
         }
-        result: tuple = (SignalType.LLM_DIRECTIONAL, side, llm_conf, signal_meta)
+        result: tuple = (SignalType.LLM_DIRECTIONAL, side, signal_confidence, signal_meta)
         self._llm_cache[market.id] = (expires_at, result)
         return result
 

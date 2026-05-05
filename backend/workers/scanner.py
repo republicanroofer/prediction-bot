@@ -18,11 +18,15 @@ On each tick:
 """
 
 import asyncio
+import json
 import logging
 import math
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
+
+import anthropic
 
 from backend.clients.kalshi_client import KalshiClient, KalshiAPIError
 from backend.clients.polymarket_client import GammaClient
@@ -32,6 +36,7 @@ from backend.db.models import (
     BlockedTradeInsert,
     CategoryScore,
     Exchange,
+    LLMQueryInsert,
     Market,
     OrderCreate,
     OrderType,
@@ -47,6 +52,8 @@ _BLOCK_THRESHOLD = 30.0
 _NEWS_SIGNAL_RECENCY_HOURS = 24
 # Hard cap on new positions opened in a single scan tick (prevents mass-entry bursts)
 _MAX_NEW_POSITIONS_PER_SCAN = 3
+# Minimum 24h volume to justify an LLM API call — filters illiquid markets
+_LLM_MIN_VOLUME_USD = 5_000.0
 
 
 class ScannerWorker:
@@ -69,6 +76,12 @@ class ScannerWorker:
         self._cfg = get_settings()
         self._new_positions_this_scan: int = 0
         self._scan_exposure_usd: float = 0.0
+        # LLM evaluation cache: market_id → (expires_at, signal_tuple_or_None)
+        # None means "LLM evaluated and abstained" — don't re-call for 30 min.
+        self._llm_cache: dict[UUID, tuple[datetime, Optional[tuple]]] = {}
+        self._llm_client: Optional[anthropic.AsyncAnthropic] = None
+        # Set True on account-level errors (no credits, invalid key) to stop retrying
+        self._llm_account_error: bool = False
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -482,50 +495,189 @@ class ScannerWorker:
     async def _detect_other_signals(
         self, market: Market
     ) -> Optional[tuple[SignalType, str, float, dict]]:
-        """Check news and volume-momentum signals."""
-        # ── News signal ───────────────────────────────────────────────────────
+        """Evaluate market with LLM, passing any recent news as context."""
+        # Collect news headline as context for the LLM (don't trade on it directly)
+        news_hint: Optional[str] = None
         recent_signals = await self._db.get_recent_signals_for_market(
             market.id, hours=_NEWS_SIGNAL_RECENCY_HOURS
         )
         if recent_signals:
-            best = recent_signals[0]  # already sorted by relevance DESC
-            relevance = float(best.relevance_score or 0)
-            sentiment = float(best.sentiment_score or 0)
-            if relevance >= 0.3:
-                direction = best.direction or ("yes" if sentiment >= 0 else "no")
-                side = "yes" if direction in ("bullish_yes", "yes") else ("no" if direction in ("bullish_no", "no") else "yes")
-                confidence = min(0.65, 0.35 + relevance * 0.20 + abs(sentiment) * 0.15)
-                return (
-                    SignalType.NEWS,
-                    side,
-                    confidence,
-                    {"headline": best.headline, "sentiment": sentiment},
-                )
+            best = recent_signals[0]
+            if float(best.relevance_score or 0) >= 0.3:
+                news_hint = best.headline
 
-        # ── Volume-momentum signal ───────────────────────────────────────────
-        # Only fire on markets with very strong volume surge (24h >= 15% of lifetime),
-        # high absolute volume, and a meaningful price skew away from 50/50.
-        vol_24h = float(market.volume_24h_usd or 0)
-        vol_total = float(market.volume_total_usd or 0)
-        days = market.days_to_close or 30
+        return await self._llm_evaluate_market(market, news_hint=news_hint)
+
+    async def _llm_evaluate_market(
+        self,
+        market: Market,
+        news_hint: Optional[str] = None,
+    ) -> Optional[tuple[SignalType, str, float, dict]]:
+        """
+        Call Claude to evaluate the market and return a signal if edge exists.
+
+        Returns a signal tuple if Claude finds actionable edge, None to abstain.
+        Results are cached per market_id for 30 minutes to avoid redundant calls.
+        """
         cfg = self._cfg
-        if vol_24h >= 10000 and vol_total > 0:
-            vol_ratio = vol_24h / vol_total
-            if vol_ratio >= 0.15:  # 24h vol is >= 15% of all-time (strong surge)
-                mid = market.yes_mid
-                # Require meaningful price skew (>60% or <40%) for a directional bet
-                if mid is not None and (mid >= 0.60 or mid <= 0.40) and 0.15 <= mid <= 0.85:
-                    side = "yes" if mid >= 0.5 else "no"
-                    confidence = min(0.65, 0.45 + vol_ratio * 1.0 + (0.02 if days <= 14 else 0))
-                    if confidence >= cfg.min_confidence:
-                        return (
-                            SignalType.LLM_DIRECTIONAL,
-                            side,
-                            confidence,
-                            {"volume_ratio": round(vol_ratio, 4), "vol_24h": vol_24h},
-                        )
 
-        return None
+        if not cfg.anthropic_api_key or self._llm_account_error:
+            return None
+
+        # ── Volume pre-filter: only LLM-evaluate genuinely active markets ─────
+        # Prevents burning budget on low-liquidity markets where the signal
+        # quality won't justify the cost.
+        vol_24h = float(market.volume_24h_usd or 0)
+        if vol_24h < _LLM_MIN_VOLUME_USD:
+            return None
+
+        # ── Cache check ───────────────────────────────────────────────────────
+        cached = self._llm_cache.get(market.id)
+        if cached is not None:
+            expires_at, cached_result = cached
+            if datetime.now(timezone.utc) < expires_at:
+                return cached_result  # type: ignore[return-value]
+            del self._llm_cache[market.id]
+
+        # ── Daily budget gate ─────────────────────────────────────────────────
+        daily_cost = await self._db.get_llm_daily_cost_usd()
+        if daily_cost >= cfg.daily_llm_budget_usd:
+            logger.warning(
+                "Daily LLM budget $%.2f exhausted (spent $%.2f) — skipping",
+                cfg.daily_llm_budget_usd, daily_cost,
+            )
+            return None
+
+        # ── Build and send prompt ─────────────────────────────────────────────
+        yes_price = float(market.yes_mid or 0.50)
+        days = float(market.days_to_close or 30)
+
+        prompt = _build_llm_prompt(
+            title=market.title,
+            yes_price=yes_price,
+            days=days,
+            category=market.category or "unknown",
+            news_hint=news_hint,
+        )
+
+        if self._llm_client is None:
+            self._llm_client = anthropic.AsyncAnthropic(api_key=cfg.anthropic_api_key)
+
+        t0 = time.monotonic()
+        try:
+            response = await self._llm_client.messages.create(
+                model=cfg.llm_model,
+                max_tokens=256,
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except anthropic.APIError as exc:
+            msg = str(exc).lower()
+            if "credit balance" in msg or "invalid api key" in msg or "authentication" in msg:
+                # Account-level error — stop all LLM calls until restart
+                self._llm_account_error = True
+                logger.error(
+                    "LLM account error — disabling LLM signals for this session: %s", exc
+                )
+            else:
+                logger.warning("LLM API error for %s: %s", market.external_id[:30], exc)
+            return None
+        latency_ms = int((time.monotonic() - t0) * 1000)
+
+        # ── Parse response ────────────────────────────────────────────────────
+        raw = response.content[0].text.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].lstrip("json").strip()
+
+        try:
+            parsed = json.loads(raw)
+            llm_conf = float(parsed["confidence"])
+            reasoning = str(parsed.get("reasoning", "")).strip()
+        except (json.JSONDecodeError, KeyError, ValueError) as exc:
+            logger.warning(
+                "LLM parse failed for %s: %s | raw=%s",
+                market.external_id[:30], exc, raw[:120],
+            )
+            return None
+
+        if not (0.0 <= llm_conf <= 1.0):
+            logger.warning("LLM returned out-of-range confidence %.3f for %s", llm_conf, market.external_id[:30])
+            return None
+
+        # ── Cost tracking ─────────────────────────────────────────────────────
+        in_tok = response.usage.input_tokens
+        out_tok = response.usage.output_tokens
+        # claude-sonnet-4-6: $3/M input, $15/M output
+        cost_usd = (in_tok * 3.0 + out_tok * 15.0) / 1_000_000
+
+        # ── Decide action from confidence vs market price ─────────────────────
+        edge_yes = llm_conf - yes_price            # positive = LLM thinks YES is cheap
+        edge_no  = yes_price - llm_conf            # positive = LLM thinks NO is cheap
+
+        action = "abstain"
+        side: Optional[str] = None
+        if llm_conf >= 0.65 and edge_yes >= 0.10:
+            action, side = "yes", "yes"
+        elif (1.0 - llm_conf) >= 0.65 and edge_no >= 0.10:
+            action, side = "no", "no"
+
+        edge_display = edge_yes if action == "yes" else (-edge_yes if action == "no" else edge_yes)
+
+        logger.info(
+            "LLM [%s] %s | action=%s conf=%.0f%% mkt=%.0f%% edge=%+.0f%% | $%.4f %dms | %s",
+            market.exchange.value,
+            market.title[:45],
+            action,
+            llm_conf * 100,
+            yes_price * 100,
+            edge_display * 100,
+            cost_usd,
+            latency_ms,
+            reasoning[:80],
+        )
+
+        # ── Persist cost log ──────────────────────────────────────────────────
+        await self._db.insert_llm_query(LLMQueryInsert(
+            model=cfg.llm_model,
+            purpose="market_analysis",
+            market_id=market.id,
+            prompt_tokens=in_tok,
+            completion_tokens=out_tok,
+            cost_usd=cost_usd,
+            response_action=action,
+            response_confidence=llm_conf,
+            latency_ms=latency_ms,
+        ))
+
+        # ── Cache and return ──────────────────────────────────────────────────
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+
+        if action == "abstain":
+            await self._log_decision(
+                {
+                    "market_id": market.id,
+                    "external_market_id": market.external_id,
+                    "market_title": market.title[:120],
+                    "exchange": market.exchange.value,
+                },
+                "abstain",
+                f"LLM abstain: conf={llm_conf:.0%} mkt={yes_price:.0%} "
+                f"edge_yes={edge_yes:+.0%} | {reasoning[:120]}",
+            )
+            self._llm_cache[market.id] = (expires_at, None)
+            return None
+
+        signal_meta = {
+            "reasoning": reasoning,
+            "llm_confidence": round(llm_conf, 4),
+            "market_price": round(yes_price, 4),
+            "edge": round(edge_display, 4),
+            "cost_usd": round(cost_usd, 6),
+            "latency_ms": latency_ms,
+        }
+        result: tuple = (SignalType.LLM_DIRECTIONAL, side, llm_conf, signal_meta)
+        self._llm_cache[market.id] = (expires_at, result)
+        return result
 
     def _kelly_size(
         self,
@@ -722,6 +874,35 @@ class ScannerWorker:
             return max(0.0, self._cfg.paper_starting_balance - exposure - self._scan_exposure_usd)
         # Live: TODO query Kalshi balance + Poly USDC balance
         return self._cfg.paper_starting_balance
+
+
+# ── LLM prompt ────────────────────────────────────────────────────────────────
+
+def _build_llm_prompt(
+    title: str,
+    yes_price: float,
+    days: float,
+    category: str,
+    news_hint: Optional[str],
+) -> str:
+    news_line = f"\nRecent news: {news_hint}" if news_hint else ""
+    return f"""You are evaluating a prediction market. Estimate the TRUE probability it resolves YES.
+
+Market: {title}
+Category: {category}
+Current YES price: {yes_price:.0%}  (this is the market's current implied probability)
+Days until resolution: {days:.0f}{news_line}
+
+Your task: using your knowledge of world events, base rates, and the context above, estimate the real probability this market resolves YES.
+
+Return JSON only — no other text, no markdown:
+{{"confidence": <float 0.0–1.0>, "reasoning": "<1-2 sentences>"}}
+
+Rules:
+- "confidence" is YOUR probability estimate, not the market price
+- If you lack meaningful information to estimate this (market too obscure, outcome genuinely uncertain, or price already efficient), set confidence within ±0.05 of the market price
+- Be conservative and honest about uncertainty — wrong bets lose money
+- A {yes_price:.0%} market price already reflects crowd wisdom; you need a real reason to deviate"""
 
 
 # ── Utilities ─────────────────────────────────────────────────────────────────

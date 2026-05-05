@@ -52,8 +52,13 @@ _BLOCK_THRESHOLD = 30.0
 _NEWS_SIGNAL_RECENCY_HOURS = 24
 # Hard cap on new positions opened in a single scan tick (prevents mass-entry bursts)
 _MAX_NEW_POSITIONS_PER_SCAN = 3
+# Hard cap on new positions opened per calendar day (resets at midnight UTC)
+_MAX_NEW_POSITIONS_PER_DAY = 10
 # Minimum 24h volume to justify an LLM API call — filters illiquid markets
 _LLM_MIN_VOLUME_USD = 5_000.0
+# LLM must exceed this confidence AND edge to trade (raised from 0.65/0.10)
+_LLM_MIN_CONFIDENCE = 0.75
+_LLM_MIN_EDGE = 0.15
 
 
 class ScannerWorker:
@@ -288,6 +293,18 @@ class ScannerWorker:
         cfg = self._cfg
         self._new_positions_this_scan = 0
         self._scan_exposure_usd = 0.0
+
+        # Check daily position cap before evaluating any markets
+        try:
+            daily_count = await self._db.count_positions_opened_today()
+        except Exception:
+            daily_count = 0
+        if daily_count >= _MAX_NEW_POSITIONS_PER_DAY:
+            logger.info(
+                "Daily position cap reached (%d/%d) — skipping evaluation",
+                daily_count, _MAX_NEW_POSITIONS_PER_DAY,
+            )
+            return
 
         # Refresh historical win rates for the pattern scorer
         try:
@@ -760,7 +777,7 @@ class ScannerWorker:
     async def _scan_arbitrage(self) -> None:
         """Find markets listed on both exchanges with a >5% price gap."""
         pairs = await self._db.get_cross_exchange_pairs(
-            min_gap=0.05, min_volume=self._cfg.min_market_volume_usd,
+            min_gap=0.05, min_volume=200.0,
         )
         for pair in pairs:
             if self._new_positions_this_scan >= _MAX_NEW_POSITIONS_PER_SCAN:
@@ -889,6 +906,12 @@ class ScannerWorker:
         if vol_24h < _LLM_MIN_VOLUME_USD:
             return None
 
+        # ── Skip live sports matches: LLM has no edge on real-time outcomes ──
+        days = float(market.days_to_close or 30)
+        cat = (market.category or "").lower()
+        if cat in ("sports", "") and days < 1.0:
+            return None
+
         # ── Cache check ───────────────────────────────────────────────────────
         cached = self._llm_cache.get(market.id)
         if cached is not None:
@@ -974,9 +997,9 @@ class ScannerWorker:
 
         action = "abstain"
         side: Optional[str] = None
-        if llm_conf >= 0.65 and edge_yes >= 0.10:
+        if llm_conf >= _LLM_MIN_CONFIDENCE and edge_yes >= _LLM_MIN_EDGE:
             action, side = "yes", "yes"
-        elif (1.0 - llm_conf) >= 0.65 and edge_no >= 0.10:
+        elif (1.0 - llm_conf) >= _LLM_MIN_CONFIDENCE and edge_no >= _LLM_MIN_EDGE:
             action, side = "no", "no"
 
         edge_display = edge_yes if action == "yes" else (-edge_yes if action == "no" else edge_yes)

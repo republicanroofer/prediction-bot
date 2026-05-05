@@ -207,6 +207,12 @@ class Database:
             )
             return [dict(r) for r in rows]
 
+    async def count_positions_opened_today(self) -> int:
+        async with self._pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT COUNT(*) FROM positions WHERE opened_at >= CURRENT_DATE"
+            )
+
     async def get_market_by_condition(self, condition_id: str) -> Optional[Market]:
         """Look up Polymarket market by condition_id (= external_id)."""
         async with self._pool.acquire() as conn:

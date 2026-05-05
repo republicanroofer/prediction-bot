@@ -84,6 +84,8 @@ class ScannerWorker:
         self._llm_client: Optional[anthropic.AsyncAnthropic] = None
         # Set True on account-level errors (no credits, invalid key) to stop retrying
         self._llm_account_error: bool = False
+        # Historical win rates cached per scan (refreshed every tick)
+        self._hist_rates: dict[tuple[str, str, str], dict] = {}
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -286,6 +288,16 @@ class ScannerWorker:
         cfg = self._cfg
         self._new_positions_this_scan = 0
         self._scan_exposure_usd = 0.0
+
+        # Refresh historical win rates for the pattern scorer
+        try:
+            rates = await self._db.get_historical_win_rates(min_trades=5)
+            self._hist_rates = {
+                (r["category"], r["exchange"], r["price_range"]): r
+                for r in rates
+            }
+        except Exception:
+            pass
 
         for market in markets:
             if self._new_positions_this_scan >= _MAX_NEW_POSITIONS_PER_SCAN:
@@ -510,7 +522,12 @@ class ScannerWorker:
     async def _detect_other_signals(
         self, market: Market
     ) -> Optional[tuple[SignalType, str, float, dict]]:
-        """Check order book imbalance and late money before LLM eval."""
+        """Check structural signals before falling back to LLM eval."""
+        # Fetch recent news signals once for reuse across checks
+        recent_signals = await self._db.get_recent_signals_for_market(
+            market.id, hours=_NEWS_SIGNAL_RECENCY_HOURS
+        )
+
         # ── Order book imbalance (Polymarket only, requires CLOB) ────────────
         ob_signal = await self._detect_order_book_imbalance(market)
         if ob_signal:
@@ -521,11 +538,18 @@ class ScannerWorker:
         if lm_signal:
             return lm_signal
 
+        # ── Social/news sentiment aggregation ─────────────────────────────────
+        ss_signal = self._detect_sentiment_signal(market, recent_signals)
+        if ss_signal:
+            return ss_signal
+
+        # ── Historical pattern ────────────────────────────────────────────────
+        hp_signal = self._detect_historical_pattern(market)
+        if hp_signal:
+            return hp_signal
+
         # ── LLM evaluation (fallback) ────────────────────────────────────────
-        news_hint: Optional[str] = None
-        recent_signals = await self._db.get_recent_signals_for_market(
-            market.id, hours=_NEWS_SIGNAL_RECENCY_HOURS
-        )
+        news_hint = None
         if recent_signals:
             best = recent_signals[0]
             if float(best.relevance_score or 0) >= 0.3:
@@ -637,6 +661,99 @@ class ScannerWorker:
         )
 
         return (SignalType.LATE_MONEY, side, signal_confidence, meta)
+
+    # ── Social sentiment signal ─────────────────────────────────────────────
+
+    def _detect_sentiment_signal(
+        self, market: Market, recent_signals: Optional[list],
+    ) -> Optional[tuple[SignalType, str, float, dict]]:
+        if not recent_signals or len(recent_signals) < 3:
+            return None
+
+        sentiments = []
+        for sig in recent_signals[:10]:
+            s = float(sig.sentiment_score or 0)
+            r = float(sig.relevance_score or 0)
+            if r >= 0.3:
+                sentiments.append(s)
+
+        if len(sentiments) < 3:
+            return None
+
+        avg_sentiment = sum(sentiments) / len(sentiments)
+        if abs(avg_sentiment) < 0.15:
+            return None
+
+        if avg_sentiment > 0.15:
+            side = "yes"
+            confidence = min(0.75, 0.50 + avg_sentiment * 0.5)
+        else:
+            side = "no"
+            confidence = min(0.75, 0.50 + abs(avg_sentiment) * 0.5)
+
+        signal_confidence = confidence if side == "yes" else (1.0 - (1.0 - confidence))
+
+        meta = {
+            "avg_sentiment": round(avg_sentiment, 4),
+            "signal_count": len(sentiments),
+            "headlines": [s.headline[:60] for s in recent_signals[:3]],
+        }
+
+        logger.info(
+            "SOCIAL_SENT [%s] %s | %s avg_sent=%.2f from %d signals",
+            market.exchange.value, market.title[:40], side,
+            avg_sentiment, len(sentiments),
+        )
+
+        return (SignalType.SOCIAL_SENTIMENT, side, signal_confidence, meta)
+
+    # ── Historical pattern scoring ────────────────────────────────────────────
+
+    def _detect_historical_pattern(
+        self, market: Market
+    ) -> Optional[tuple[SignalType, str, float, dict]]:
+        if not self._hist_rates:
+            return None
+
+        mid = market.yes_mid
+        if mid is None:
+            return None
+
+        price_range = "low" if mid < 0.3 else ("mid" if mid < 0.7 else "high")
+        category = market.category or "unknown"
+        exchange = market.exchange.value
+
+        key = (category, exchange, price_range)
+        hist = self._hist_rates.get(key)
+        if not hist:
+            return None
+
+        total = int(hist["total"])
+        wins = int(hist["wins"])
+        win_rate = wins / total if total > 0 else 0
+
+        if total < 10 or win_rate < 0.55:
+            return None
+
+        side = "yes" if mid >= 0.5 else "no"
+        confidence = min(0.80, 0.50 + win_rate * 0.3)
+        signal_confidence = confidence if side == "yes" else (1.0 - (1.0 - confidence))
+
+        avg_pnl = float(hist["avg_pnl"])
+        meta = {
+            "hist_win_rate": round(win_rate, 4),
+            "hist_total": total,
+            "hist_avg_pnl": round(avg_pnl, 4),
+            "price_range": price_range,
+        }
+
+        logger.info(
+            "HIST_PATTERN [%s] %s | cat=%s range=%s wr=%.0f%% (%d trades)",
+            exchange, market.title[:40], category, price_range,
+            win_rate * 100, total,
+        )
+
+        return (SignalType.HISTORICAL_PATTERN, side, signal_confidence, meta)
 
     # ── Cross-market arbitrage ────────────────────────────────────────────────
 

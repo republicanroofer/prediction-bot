@@ -928,6 +928,33 @@ class Database:
             )
             return int(result.split()[-1])
 
+    # ── Historical pattern scoring ──────────────────────────────────────────────
+
+    async def get_historical_win_rates(self, min_trades: int = 5) -> list[dict]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT COALESCE(m.category, 'unknown') AS category,
+                       p.exchange::text AS exchange,
+                       CASE
+                         WHEN p.avg_entry_price < 0.3 THEN 'low'
+                         WHEN p.avg_entry_price < 0.7 THEN 'mid'
+                         ELSE 'high'
+                       END AS price_range,
+                       COUNT(*) AS total,
+                       COUNT(*) FILTER (WHERE p.realized_pnl > 0) AS wins,
+                       COALESCE(AVG(p.realized_pnl), 0) AS avg_pnl
+                FROM positions p
+                JOIN markets m ON m.id = p.market_id
+                WHERE p.status = 'closed' AND p.realized_pnl IS NOT NULL
+                GROUP BY category, p.exchange, price_range
+                HAVING COUNT(*) >= $1
+                ORDER BY COUNT(*) DESC
+                """,
+                min_trades,
+            )
+            return [dict(r) for r in rows]
+
     # ── LLM cost tracking ─────────────────────────────────────────────────────
 
     async def get_llm_daily_cost_usd(self) -> float:

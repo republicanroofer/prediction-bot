@@ -161,7 +161,8 @@ class ScannerWorker:
                 event_ticker=event.get("event_ticker"),
                 title=market.get("title") or event.get("title") or ticker,
                 category=_normalise_category(
-                    event.get("category") or market.get("category")
+                    event.get("category") or market.get("category"),
+                    title=market.get("title") or event.get("title") or "",
                 ),
                 sub_category=event.get("sub_title"),
                 yes_bid=yes_bid,
@@ -228,7 +229,10 @@ class ScannerWorker:
                 token_id_yes=token_yes,
                 token_id_no=token_no,
                 title=raw.get("question") or raw.get("title") or condition_id,
-                category=_normalise_category(raw.get("category") or raw.get("type")),
+                category=_normalise_category(
+                    raw.get("category") or raw.get("type"),
+                    title=raw.get("question") or raw.get("title") or "",
+                ),
                 yes_bid=round(yes_bid, 4),
                 yes_ask=round(yes_ask, 4),
                 no_bid=round(1 - yes_ask, 4),
@@ -729,20 +733,61 @@ def _kalshi_volume_usd(market: dict, field: str = "volume_24h_fp") -> Optional[f
     return round(contracts * mid, 2)
 
 
-def _normalise_category(raw: Optional[str]) -> Optional[str]:
-    if not raw:
+def _normalise_category(raw: Optional[str], title: str = "") -> Optional[str]:
+    if raw:
+        mapping = {
+            "Political & Geopolitical": "politics",
+            "Economics & Finance": "economics",
+            "Financials": "economics",
+            "Science & Technology": "technology",
+            "Crypto": "crypto",
+            "Cryptocurrency": "crypto",
+            "Sports": "sports",
+            "Entertainment": "entertainment",
+            "Weather & Environment": "weather",
+            "Climate & Environment": "weather",
+        }
+        cleaned = raw.strip()
+        result = mapping.get(cleaned, cleaned.lower().split()[0] if cleaned else None)
+        if result:
+            return result
+
+    if not title:
         return None
-    mapping = {
-        "Political & Geopolitical": "politics",
-        "Economics & Finance": "economics",
-        "Financials": "economics",
-        "Science & Technology": "technology",
-        "Crypto": "crypto",
-        "Cryptocurrency": "crypto",
-        "Sports": "sports",
-        "Entertainment": "entertainment",
-        "Weather & Environment": "weather",
-        "Climate & Environment": "weather",
-    }
-    cleaned = raw.strip()
-    return mapping.get(cleaned, cleaned.lower().split()[0] if cleaned else None)
+    t = title.lower()
+    if any(kw in t for kw in ("bitcoin", "btc", "ethereum", "eth", "crypto", "solana", "sol price")):
+        return "crypto"
+    if any(kw in t for kw in ("nba", "nfl", "mlb", "nhl", "premier league", " fc ", "vs.", "winner?",
+                               "game ", "playoffs", "lakers", "yankees", "mets", "padres", "braves",
+                               "red sox", "guardians", "phillies", "brewers", "cubs", "reds",
+                               "angels", "tigers", "royals", "cardinals", "orioles", "mariners",
+                               "giants", "rays", "blue jays", "white sox", "astros", "dodgers",
+                               "rangers", "twins", "pirates", "rockies", "nationals", "marlins",
+                               "atletico", "barcelona", "real madrid", "manchester", "chelsea",
+                               "arsenal", "liverpool", "tottenham", "inter", "juventus", "roma",
+                               "bayern", "dortmund", "psg", "serie a", "la liga", "bundesliga",
+                               "cricket", "ipl", "tennis", "atp", "wta", "esports", "lol:",
+                               "dota", "csgo", "ufc", "boxing", "f1", "formula",
+                               " win on 2026", " win on 2027", "o/u ", "over/under",
+                               "points?", "spread", "handicap", "1st inning")):
+        return "sports"
+    if any(kw in t for kw in ("trump", "biden", "election", "congress", "senate", "president",
+                               "governor", "democrat", "republican", "poll", "vote", "party",
+                               "legislation", "bill pass", "supreme court")):
+        return "politics"
+    if any(kw in t for kw in ("iran", "ukraine", "russia", "china", "war", "ceasefire",
+                               "military", "nato", "sanctions", "invasion", "missile",
+                               "airspace", "blockade", "strait", "nuclear")):
+        return "geopolitics"
+    if any(kw in t for kw in ("oil", "wti", "crude", "gold", "silver", "commodity",
+                               "natural gas", "brent")):
+        return "commodities"
+    if any(kw in t for kw in ("s&p", "nasdaq", "dow", "stock", "fed ", "interest rate",
+                               "inflation", "gdp", "unemployment", "tariff")):
+        return "economics"
+    if any(kw in t for kw in ("weather", "hurricane", "temperature", "earthquake", "flood")):
+        return "weather"
+    if any(kw in t for kw in ("movie", "album", "oscar", "grammy", "spotify",
+                               "youtube", "tiktok", "mrbeast", "views", "streaming")):
+        return "entertainment"
+    return None

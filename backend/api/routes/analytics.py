@@ -252,3 +252,26 @@ async def category_exposure(
             """
         )
     return [dict(r) for r in rows]
+
+
+@router.get("/positions-by-category")
+async def positions_by_category(
+    category: str = Query(...),
+    db: Database = Depends(get_db),
+) -> list[dict]:
+    async with db._pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                p.id, p.exchange::text, p.side, p.signal_type::text,
+                p.avg_entry_price, p.cost_basis_usd, p.unrealized_pnl,
+                p.opened_at, m.title AS market_title
+            FROM positions p
+            JOIN markets m ON m.id = p.market_id
+            WHERE p.status IN ('open', 'pending_close')
+              AND COALESCE(m.category, 'unknown') = $1
+            ORDER BY p.cost_basis_usd DESC
+            """,
+            category,
+        )
+    return [dict(r) for r in rows]

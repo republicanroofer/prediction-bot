@@ -180,6 +180,18 @@ export type CategoryExposure = {
   unrealized_pnl: number;
 };
 
+export type CategoryPosition = {
+  id: string;
+  exchange: string;
+  side: string;
+  signal_type: string;
+  avg_entry_price: number;
+  cost_basis_usd: number;
+  unrealized_pnl: number;
+  opened_at: string;
+  market_title: string;
+};
+
 export type FunnelMetrics = {
   markets_scanned: number;
   signals_generated: number;
@@ -217,6 +229,8 @@ export const api = {
   whaleSignals: (hours = 24, limit = 50) => fetchJSON<WhaleTrade[]>(`/signals/whale?hours=${hours}&limit=${limit}`),
   activity: (hours = 24, limit = 100) => fetchJSON<ActivityEvent[]>(`/activity/?hours=${hours}&limit=${limit}`),
   exposure: () => fetchJSON<CategoryExposure[]>("/analytics/exposure"),
+  positionsByCategory: (category: string) =>
+    fetchJSON<CategoryPosition[]>(`/analytics/positions-by-category?category=${encodeURIComponent(category)}`),
   funnel: (hours = 24) => fetchJSON<FunnelMetrics>(`/analytics/funnel?hours=${hours}`),
   opportunities: (limit = 20) => fetchJSON<Opportunity[]>(`/analytics/opportunities?limit=${limit}`),
   decisionsSummary: () => fetchJSON<DecisionSummary>("/analytics/decisions/summary"),

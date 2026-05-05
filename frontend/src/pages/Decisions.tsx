@@ -214,11 +214,20 @@ export function Decisions() {
   );
 }
 
+function num(v: unknown): number | null {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function DecisionRow({ d, onReasonClick }: { d: EvalDecision; onReasonClick: (r: string) => void }) {
   const accepted = d.decision === "accepted";
-  const edgePct = d.edge != null ? (d.edge * 100).toFixed(1) : null;
-  const edgeColor = (d.edge ?? 0) > 0.05 ? "text-green-400" : (d.edge ?? 0) > 0 ? "text-yellow-400" : "text-gray-500";
+  const edge = num(d.edge);
+  const edgePct = edge != null ? (edge * 100).toFixed(1) : null;
+  const edgeColor = (edge ?? 0) > 0.05 ? "text-green-400" : (edge ?? 0) > 0 ? "text-yellow-400" : "text-gray-500";
   const reasonPrefix = d.reason.split(":")[0];
+  const entryPrice = num(d.entry_price);
+  const kelly = num(d.kelly_size_usd);
 
   return (
     <tr className={`border-b border-gray-800/50 hover:bg-gray-800/30 ${accepted ? "bg-green-950/10" : ""}`}>
@@ -246,13 +255,13 @@ function DecisionRow({ d, onReasonClick }: { d: EvalDecision; onReasonClick: (r:
         {d.signal_type ? d.signal_type.replace("_", " ") : "—"}
       </td>
       <td className="p-3 text-gray-400 text-xs font-mono hidden md:table-cell">
-        {d.entry_price != null ? `${(d.entry_price * 100).toFixed(0)}¢` : "—"}
+        {entryPrice != null ? `${(entryPrice * 100).toFixed(0)}¢` : "—"}
       </td>
       <td className={`p-3 text-xs font-mono font-semibold hidden lg:table-cell ${edgeColor}`}>
         {edgePct != null ? `${Number(edgePct) > 0 ? "+" : ""}${edgePct}%` : "—"}
       </td>
       <td className="p-3 text-gray-400 text-xs font-mono hidden lg:table-cell">
-        {d.kelly_size_usd != null ? `$${d.kelly_size_usd.toFixed(0)}` : "—"}
+        {kelly != null ? `$${kelly.toFixed(0)}` : "—"}
       </td>
       <td className="p-3 text-xs max-w-[280px]">
         <button

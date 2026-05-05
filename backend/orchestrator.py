@@ -30,6 +30,7 @@ from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from backend.alerts.daily_recap import send_daily_recap
 from backend.alerts.telegram import get_alerter
 from backend.clients.kalshi_client import KalshiClient
 from backend.clients.polymarket_client import GammaClient, PolymarketClobClient
@@ -173,6 +174,15 @@ class Orchestrator:
             hours=6,
             id="category_scorer",
             misfire_grace_time=300,
+        )
+        self._scheduler.add_job(
+            send_daily_recap,
+            "cron",
+            args=[self.db],
+            hour=12,
+            minute=0,
+            id="daily_recap",
+            misfire_grace_time=600,
         )
         self._scheduler.start()
 

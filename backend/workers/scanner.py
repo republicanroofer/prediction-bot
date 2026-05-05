@@ -29,7 +29,7 @@ from uuid import UUID
 import anthropic
 
 from backend.clients.kalshi_client import KalshiClient, KalshiAPIError
-from backend.clients.polymarket_client import GammaClient
+from backend.clients.polymarket_client import GammaClient, PolymarketClobClient
 from backend.config.settings import ActiveExchange, TradingMode, get_settings
 from backend.db.database import Database
 from backend.db.models import (
@@ -67,11 +67,13 @@ class ScannerWorker:
         db: Database,
         kalshi: Optional[KalshiClient],
         gamma: Optional[GammaClient],
+        clob: Optional["PolymarketClobClient"] = None,
         stop_event: Optional[asyncio.Event] = None,
     ) -> None:
         self._db = db
         self._kalshi = kalshi
         self._gamma = gamma
+        self._clob = clob
         self._stop = stop_event or asyncio.Event()
         self._cfg = get_settings()
         self._new_positions_this_scan: int = 0
@@ -508,8 +510,18 @@ class ScannerWorker:
     async def _detect_other_signals(
         self, market: Market
     ) -> Optional[tuple[SignalType, str, float, dict]]:
-        """Evaluate market with LLM, passing any recent news as context."""
-        # Collect news headline as context for the LLM (don't trade on it directly)
+        """Check order book imbalance and late money before LLM eval."""
+        # ── Order book imbalance (Polymarket only, requires CLOB) ────────────
+        ob_signal = await self._detect_order_book_imbalance(market)
+        if ob_signal:
+            return ob_signal
+
+        # ── Late money signal ────────────────────────────────────────────────
+        lm_signal = self._detect_late_money(market)
+        if lm_signal:
+            return lm_signal
+
+        # ── LLM evaluation (fallback) ────────────────────────────────────────
         news_hint: Optional[str] = None
         recent_signals = await self._db.get_recent_signals_for_market(
             market.id, hours=_NEWS_SIGNAL_RECENCY_HOURS
@@ -520,6 +532,111 @@ class ScannerWorker:
                 news_hint = best.headline
 
         return await self._llm_evaluate_market(market, news_hint=news_hint)
+
+    # ── Order book imbalance ──────────────────────────────────────────────────
+
+    async def _detect_order_book_imbalance(
+        self, market: Market
+    ) -> Optional[tuple[SignalType, str, float, dict]]:
+        if market.exchange != Exchange.POLYMARKET or not self._clob:
+            return None
+
+        vol_24h = float(market.volume_24h_usd or 0)
+        if vol_24h < _LLM_MIN_VOLUME_USD:
+            return None
+
+        yes_token = market.external_id
+        if not yes_token:
+            return None
+
+        try:
+            book = await self._clob.get_orderbook(yes_token)
+        except Exception:
+            return None
+
+        bids = book.get("bids", [])
+        asks = book.get("asks", [])
+        if not bids or not asks:
+            return None
+
+        bid_depth = sum(float(b.get("size", 0)) for b in bids[:10])
+        ask_depth = sum(float(a.get("size", 0)) for a in asks[:10])
+
+        if bid_depth == 0 or ask_depth == 0:
+            return None
+
+        ratio = bid_depth / ask_depth
+        inv_ratio = ask_depth / bid_depth
+
+        _OB_MIN_RATIO = 3.0
+
+        if ratio >= _OB_MIN_RATIO:
+            side = "yes"
+            imbalance = ratio
+            confidence = min(0.75, 0.5 + (ratio - _OB_MIN_RATIO) * 0.05)
+        elif inv_ratio >= _OB_MIN_RATIO:
+            side = "no"
+            imbalance = inv_ratio
+            confidence = min(0.75, 0.5 + (inv_ratio - _OB_MIN_RATIO) * 0.05)
+        else:
+            return None
+
+        signal_confidence = confidence
+        meta = {
+            "bid_depth": round(bid_depth, 2),
+            "ask_depth": round(ask_depth, 2),
+            "imbalance_ratio": round(imbalance, 2),
+        }
+
+        logger.info(
+            "ORDER_BOOK [polymarket] %s | %s imbalance=%.1f:1 bids=%.0f asks=%.0f",
+            market.title[:40], side, imbalance, bid_depth, ask_depth,
+        )
+
+        return (SignalType.ORDER_BOOK, side, signal_confidence, meta)
+
+    # ── Late money signal ─────────────────────────────────────────────────────
+
+    def _detect_late_money(
+        self, market: Market
+    ) -> Optional[tuple[SignalType, str, float, dict]]:
+        days = market.days_to_close
+        if days is None or days > 2.0 or days < 0.1:
+            return None
+
+        vol_24h = float(market.volume_24h_usd or 0)
+        vol_total = float(market.volume_total_usd or 0)
+
+        if vol_total < 1000 or vol_24h < 500:
+            return None
+
+        avg_daily_vol = vol_total / max(1, 30)
+        vol_spike = vol_24h / max(1, avg_daily_vol)
+
+        if vol_spike < 2.0:
+            return None
+
+        mid = market.yes_mid
+        if mid is None or 0.40 <= mid <= 0.60:
+            return None
+
+        side = "yes" if mid >= 0.60 else "no"
+        confidence = min(0.80, 0.55 + (vol_spike - 2.0) * 0.03 + abs(mid - 0.5) * 0.3)
+        signal_confidence = confidence if side == "yes" else (1.0 - (1.0 - confidence))
+
+        meta = {
+            "vol_spike": round(vol_spike, 2),
+            "vol_24h": round(vol_24h, 0),
+            "days_to_close": round(days, 2),
+        }
+
+        logger.info(
+            "LATE_MONEY [%s] %s | %s spike=%.1fx vol=$%.0f days=%.1f",
+            market.exchange.value, market.title[:40], side,
+            vol_spike, vol_24h, days,
+        )
+
+        return (SignalType.LATE_MONEY, side, signal_confidence, meta)
 
     # ── Cross-market arbitrage ────────────────────────────────────────────────
 

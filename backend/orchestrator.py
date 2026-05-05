@@ -130,6 +130,7 @@ class Orchestrator:
                 db=self.db,
                 kalshi=kalshi,
                 gamma=gamma,
+                clob=clob,
                 stop_event=self._stop,
             )
             workers.append(scanner.run())

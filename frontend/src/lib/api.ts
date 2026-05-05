@@ -144,6 +144,61 @@ export type WsSnapshot = {
   ts: string;
 };
 
+export type EvalDecision = {
+  id: string;
+  market_id?: string;
+  external_market_id?: string;
+  market_title?: string;
+  exchange: string;
+  signal_type?: string;
+  side?: string;
+  entry_price?: number;
+  edge?: number;
+  confidence?: number;
+  kelly_size_usd?: number;
+  decision: string;
+  reason: string;
+  created_at: string;
+};
+
+export type DecisionSummary = {
+  total: number;
+  buckets: { reason: string; exchange: string; decision: string; count: number }[];
+};
+
+export type CategoryExposure = {
+  category: string;
+  exchange: string;
+  positions_count: number;
+  exposure_usd: number;
+  unrealized_pnl: number;
+};
+
+export type FunnelMetrics = {
+  markets_scanned: number;
+  signals_generated: number;
+  trades_blocked: number;
+  trades_executed: number;
+  period_hours: number;
+};
+
+export type Opportunity = {
+  market_id: string;
+  external_id: string;
+  title: string;
+  exchange: string;
+  category?: string;
+  yes_mid?: number;
+  confidence: number;
+  edge: number;
+  signal_type?: string;
+  signal_headline?: string;
+  relevance: number;
+  sentiment?: number;
+  volume_24h?: number;
+  days_to_close?: number;
+};
+
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
 
 export const api = {
@@ -155,4 +210,29 @@ export const api = {
   newsSignals: (hours = 24, limit = 50) => fetchJSON<NewsSignal[]>(`/signals/news?hours=${hours}&limit=${limit}`),
   whaleSignals: (hours = 24, limit = 50) => fetchJSON<WhaleTrade[]>(`/signals/whale?hours=${hours}&limit=${limit}`),
   activity: (hours = 24, limit = 100) => fetchJSON<ActivityEvent[]>(`/activity/?hours=${hours}&limit=${limit}`),
+  exposure: () => fetchJSON<CategoryExposure[]>("/analytics/exposure"),
+  funnel: (hours = 24) => fetchJSON<FunnelMetrics>(`/analytics/funnel?hours=${hours}`),
+  opportunities: (limit = 20) => fetchJSON<Opportunity[]>(`/analytics/opportunities?limit=${limit}`),
+  decisionsSummary: () => fetchJSON<DecisionSummary>("/analytics/decisions/summary"),
+  decisionsLive: (params: {
+    limit?: number;
+    exchange?: string;
+    decision?: string;
+    signal_type?: string;
+    reason?: string;
+  } = {}) => {
+    const q = new URLSearchParams();
+    if (params.limit) q.set("limit", String(params.limit));
+    if (params.exchange) q.set("exchange", params.exchange);
+    if (params.decision) q.set("decision", params.decision);
+    if (params.signal_type) q.set("signal_type", params.signal_type);
+    if (params.reason) q.set("reason", params.reason);
+    const qs = q.toString();
+    return fetchJSON<EvalDecision[]>(`/analytics/decisions/live${qs ? "?" + qs : ""}`);
+  },
+  orders: (positionId?: string, limit = 100) => {
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (positionId) q.set("position_id", positionId);
+    return fetchJSON<Order[]>(`/orders/?${q}`);
+  },
 };

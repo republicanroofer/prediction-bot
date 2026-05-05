@@ -10,6 +10,15 @@ export default {
           900: "#0c4a6e",
         },
       },
+      animation: {
+        scroll: "scroll 60s linear infinite",
+      },
+      keyframes: {
+        scroll: {
+          "0%": { transform: "translateX(0)" },
+          "100%": { transform: "translateX(-50%)" },
+        },
+      },
     },
   },
   plugins: [],

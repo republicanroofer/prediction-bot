@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Nav } from "./components/Nav";
 import { StatusBar } from "./components/StatusBar";
+import { LiveTicker } from "./components/LiveTicker";
 import { Activity } from "./pages/Activity";
+import { Decisions } from "./pages/Decisions";
 import { Markets } from "./pages/Markets";
 import { Overview } from "./pages/Overview";
 import { Signals } from "./pages/Signals";
@@ -28,8 +30,6 @@ export default function App() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
-  // Override position count and exposure from the live WebSocket snapshot
-  // so StatusBar and Overview cards always show the same numbers.
   const liveStatus: typeof status = status && snapshot
     ? {
         ...status,
@@ -43,10 +43,12 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col">
       <StatusBar status={liveStatus} connected={connected} />
+      <LiveTicker />
       <Nav active={tab} onChange={setTab} />
 
       <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
         {tab === "overview"  && <Overview snapshot={snapshot} pnlHistory={pnlHistory} />}
+        {tab === "decisions" && <Decisions />}
         {tab === "signals"   && <Signals />}
         {tab === "markets"   && <Markets />}
         {tab === "whales"    && <Whales />}

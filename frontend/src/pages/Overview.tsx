@@ -1,6 +1,10 @@
+import { ExposurePieChart } from "../components/ExposurePieChart";
+import { FunnelMetrics } from "../components/FunnelMetrics";
+import { OpportunitiesQueue } from "../components/OpportunitiesQueue";
 import { PnLChart } from "../components/PnLChart";
 import { PositionsTable } from "../components/PositionsTable";
 import { StatCard } from "../components/StatCard";
+import { StrategyBreakdown } from "../components/StrategyBreakdown";
 import type { DailyPnL, Position, WsSnapshot } from "../lib/api";
 
 type Props = {
@@ -46,6 +50,13 @@ export function Overview({ snapshot, pnlHistory }: Props) {
         />
       </div>
 
+      <FunnelMetrics />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <ExposurePieChart />
+        <StrategyBreakdown positions={positions} />
+      </div>
+
       <section className="bg-gray-900 border border-gray-800 rounded-lg p-4">
         <h2 className="text-gray-300 text-sm font-semibold mb-3">Cumulative P&L (30 days)</h2>
         {pnlHistory.length > 0 ? (
@@ -54,6 +65,8 @@ export function Overview({ snapshot, pnlHistory }: Props) {
           <p className="text-gray-600 text-sm py-8 text-center">No P&L data yet</p>
         )}
       </section>
+
+      <OpportunitiesQueue />
 
       <section className="bg-gray-900 border border-gray-800 rounded-lg p-4">
         <h2 className="text-gray-300 text-sm font-semibold mb-3">

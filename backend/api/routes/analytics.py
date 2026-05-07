@@ -44,6 +44,9 @@ async def funnel_metrics(
     }
 
 
+_ALLOWED_CATEGORIES = {"politics", "crypto", "economics", "geopolitics", "commodities"}
+
+
 @router.get("/opportunities")
 async def opportunities(
     limit: int = Query(20, le=100),
@@ -73,6 +76,7 @@ async def opportunities(
                 WHERE ns.created_at >= NOW() - interval '24 hours'
                   AND m.is_active = TRUE
                   AND m.close_time > NOW() + interval '1 day'
+                  AND LOWER(COALESCE(m.category, '')) = ANY($2::text[])
                   AND NOT EXISTS (
                       SELECT 1 FROM positions p
                       WHERE p.market_id = ns.market_id
@@ -91,6 +95,7 @@ async def opportunities(
             LIMIT $1
             """,
             limit,
+            list(_ALLOWED_CATEGORIES),
         )
     results = []
     for r in rows:

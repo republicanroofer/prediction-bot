@@ -40,39 +40,84 @@ async def daily_pnl(
             since,
         )
 
+        results = []
+        for r in rows:
+            results.append({
+                "date": str(r["date"]),
+                "exchange": r["exchange"],
+                "mode": r["mode"],
+                "realized_pnl": float(r["realized_pnl"]),
+                "unrealized_pnl": float(r["unrealized_pnl"]),
+                "num_positions": r["num_positions"],
+                "num_wins": r["num_wins"],
+                "num_losses": r["num_losses"],
+            })
+
+        if not results:
+            unreal = await conn.fetchrow(
+                """
+                SELECT COALESCE(SUM(unrealized_pnl), 0) AS unrealized,
+                       COUNT(*) AS positions
+                FROM positions WHERE status IN ('open', 'pending_close')
+                """
+            )
+            if unreal and unreal["positions"] > 0:
+                results.append({
+                    "date": str(date.today()),
+                    "exchange": "both",
+                    "mode": "paper",
+                    "realized_pnl": 0.0,
+                    "unrealized_pnl": float(unreal["unrealized"]),
+                    "num_positions": unreal["positions"],
+                    "num_wins": 0,
+                    "num_losses": 0,
+                })
+
+    return results
+
+
+@router.get("/trades")
+async def pnl_trades(
+    days: int = Query(30, le=365),
+    db: Database = Depends(get_db),
+) -> list[dict]:
+    """One data point per closed trade, ordered chronologically."""
+    since = date.today() - timedelta(days=days)
+    async with db._pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                p.closed_at,
+                p.realized_pnl,
+                p.exchange::text,
+                p.signal_type::text,
+                p.side,
+                p.cost_basis_usd,
+                m.title AS market_title
+            FROM positions p
+            JOIN markets m ON m.id = p.market_id
+            WHERE p.status = 'closed'
+              AND p.closed_at::date >= $1
+            ORDER BY p.closed_at ASC
+            """,
+            since,
+        )
+
+    cum = 0.0
     results = []
     for r in rows:
+        pnl = float(r["realized_pnl"] or 0)
+        cum += pnl
         results.append({
-            "date": str(r["date"]),
+            "timestamp": r["closed_at"].isoformat(),
+            "realized_pnl": round(pnl, 2),
+            "cumulative_pnl": round(cum, 2),
             "exchange": r["exchange"],
-            "mode": r["mode"],
-            "realized_pnl": float(r["realized_pnl"]),
-            "unrealized_pnl": float(r["unrealized_pnl"]),
-            "num_positions": r["num_positions"],
-            "num_wins": r["num_wins"],
-            "num_losses": r["num_losses"],
+            "signal_type": r["signal_type"],
+            "side": r["side"],
+            "cost_basis_usd": float(r["cost_basis_usd"]),
+            "market_title": r["market_title"],
         })
-
-    # If no closed positions yet, include today with open position unrealized
-    if not results:
-        unreal = await conn.fetchrow(
-            """
-            SELECT COALESCE(SUM(unrealized_pnl), 0) AS unrealized,
-                   COUNT(*) AS positions
-            FROM positions WHERE status IN ('open', 'pending_close')
-            """
-        )
-        if unreal and unreal["positions"] > 0:
-            results.append({
-                "date": str(date.today()),
-                "exchange": "both",
-                "mode": "paper",
-                "realized_pnl": 0.0,
-                "unrealized_pnl": float(unreal["unrealized"]),
-                "num_positions": unreal["positions"],
-                "num_wins": 0,
-                "num_losses": 0,
-            })
 
     return results
 

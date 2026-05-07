@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import math
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -55,7 +56,7 @@ _NEWS_SIGNAL_RECENCY_HOURS = 24
 # Hard cap on new positions opened in a single scan tick (prevents mass-entry bursts)
 _MAX_NEW_POSITIONS_PER_SCAN = 3
 # Hard cap on new positions opened per calendar day (resets at midnight UTC)
-_MAX_NEW_POSITIONS_PER_DAY = 10
+_MAX_NEW_POSITIONS_PER_DAY = int(os.environ.get("MAX_NEW_POSITIONS_PER_DAY", "3"))
 # Minimum 24h volume to justify an LLM API call — filters illiquid markets
 _LLM_MIN_VOLUME_USD = 5_000.0
 # LLM must exceed this confidence AND edge to trade

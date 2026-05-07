@@ -48,6 +48,8 @@ logger = logging.getLogger(__name__)
 
 # Minimum required composite category score to allow any trade
 _BLOCK_THRESHOLD = 30.0
+# Only trade in these categories — everything else is rejected before signals
+_ALLOWED_CATEGORIES = {"politics", "crypto", "economics", "geopolitics", "commodities"}
 # Seconds of news signal recency required to count as "actionable"
 _NEWS_SIGNAL_RECENCY_HOURS = 24
 # Hard cap on new positions opened in a single scan tick (prevents mass-entry bursts)
@@ -56,9 +58,9 @@ _MAX_NEW_POSITIONS_PER_SCAN = 3
 _MAX_NEW_POSITIONS_PER_DAY = 10
 # Minimum 24h volume to justify an LLM API call — filters illiquid markets
 _LLM_MIN_VOLUME_USD = 5_000.0
-# LLM must exceed this confidence AND edge to trade (raised from 0.65/0.10)
-_LLM_MIN_CONFIDENCE = 0.75
-_LLM_MIN_EDGE = 0.15
+# LLM must exceed this confidence AND edge to trade
+_LLM_MIN_CONFIDENCE = 0.80
+_LLM_MIN_EDGE = 0.20
 
 
 class ScannerWorker:
@@ -371,6 +373,15 @@ class ScannerWorker:
             if days is not None and days <= 0:
                 await self._log_decision(mkt_base, "rejected", f"market already closed (whale signal)")
                 return
+
+        # ── Category allowlist gate ──────────────────────────────────────────
+        normalised_cat = _normalise_category(market.category, market.title)
+        if normalised_cat not in _ALLOWED_CATEGORIES:
+            await self._log_decision(
+                mkt_base, "rejected",
+                f"category not in allowlist: {normalised_cat!r}",
+            )
+            return
 
         # ── Category score gate ───────────────────────────────────────────────
         cat_score = await self._db.get_category_score(
@@ -1279,6 +1290,8 @@ Category: {category}
 Current YES price: {yes_price:.0%}  (this is the market's current implied probability)
 Days until resolution: {days:.0f}{news_line}
 
+Resolution criteria: this market resolves YES if the stated event occurs before the close date; NO otherwise. If the title contains a numeric threshold (e.g. "above $100k"), the event must meet or exceed that threshold.
+
 Your task: using your knowledge of world events, base rates, and the context above, estimate the real probability this market resolves YES.
 
 Return JSON only — no other text, no markdown:
@@ -1286,7 +1299,8 @@ Return JSON only — no other text, no markdown:
 
 Rules:
 - "confidence" is YOUR probability estimate, not the market price
-- If you lack meaningful information to estimate this (market too obscure, outcome genuinely uncertain, or price already efficient), set confidence within ±0.05 of the market price
+- If you lack meaningful information to estimate this (market too obscure, outcome genuinely uncertain, or price already efficient), set confidence within ±0.05 of the market price — this signals abstention and the system will skip the trade
+- ABSTAIN rather than guess: if you have no edge or domain knowledge on this specific question, stay within ±0.05 of market price. Only deviate when you have a concrete, articulable reason.
 - Be conservative and honest about uncertainty — wrong bets lose money
 - A {yes_price:.0%} market price already reflects crowd wisdom; you need a real reason to deviate"""
 

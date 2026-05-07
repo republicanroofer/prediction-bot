@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { api, n, type Market, type Opportunity } from "../lib/api";
 
+const ALLOWED_CATEGORIES = new Set(["politics", "crypto", "economics", "geopolitics", "commodities"]);
+
 export function LiveTicker() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [opps, setOpps] = useState<Opportunity[]>([]);
@@ -20,7 +22,7 @@ export function LiveTicker() {
             next[mk.id] = mid;
           }
           prevPrices.current = next;
-          setMarkets(m.filter((mk) => mk.is_active && n(mk.volume_24h_usd) > 0).slice(0, 30));
+          setMarkets(m.filter((mk) => mk.is_active && n(mk.volume_24h_usd) > 0 && ALLOWED_CATEGORIES.has((mk.category ?? "").toLowerCase())).slice(0, 30));
           setOpps(o);
         }
       } catch {}
